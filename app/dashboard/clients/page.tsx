@@ -147,6 +147,25 @@ export default function ClientsPage() {
           </Button>
         </div>
 
+        {/* Breadcrumb Navigation */}
+        <div className="mb-6">
+          <nav className="flex" aria-label="Breadcrumb">
+            <ol className="flex items-center space-x-2">
+              <li>
+                <Link href="/dashboard" className="text-gray-500 hover:text-gray-700">
+                  Dashboard
+                </Link>
+              </li>
+              <li>
+                <span className="text-gray-400">/</span>
+              </li>
+              <li>
+                <span className="text-gray-900 font-medium">Clients</span>
+              </li>
+            </ol>
+          </nav>
+        </div>
+
         {/* Stats Cards */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
           <Card>
@@ -272,9 +291,12 @@ export default function ClientsPage() {
                       <TableRow key={client.id} className="hover:bg-gray-50">
                         <TableCell>
                           <div>
-                            <div className="font-medium text-gray-900">
+                            <Link
+                              href={`/dashboard/clients/${client.id}`}
+                              className="font-medium text-gray-900 hover:text-blue-600 hover:underline cursor-pointer"
+                            >
                               {client.first_name} {client.last_name}
-                            </div>
+                            </Link>
                             {client.date_of_birth && (
                               <div className="text-sm text-gray-500 flex items-center gap-1">
                                 <Calendar className="w-3 h-3" />
