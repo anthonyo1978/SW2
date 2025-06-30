@@ -11,13 +11,14 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { ArrowLeft, User, Heart, DollarSign, Loader2, AlertCircle } from "lucide-react"
+import { ArrowLeft, User, Heart, DollarSign, Loader2, AlertCircle, CheckCircle } from "lucide-react"
 import { supabase } from "@/lib/supabase"
 
 export default function NewClientPage() {
   const router = useRouter()
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState("")
+  const [success, setSuccess] = useState(false)
 
   // Form state
   const [formData, setFormData] = useState({
@@ -106,19 +107,39 @@ export default function NewClientPage() {
 
       console.log("Client created successfully:", data)
 
-      // If client is set to active, buckets will be auto-created by the trigger
-      if (formData.status === "active") {
-        console.log("Client is active - buckets should be auto-created")
-      }
+      // Show success message
+      setSuccess(true)
 
-      // Redirect to client details page
-      router.push(`/dashboard/clients/${data.id}`)
+      // Redirect after a brief delay
+      setTimeout(() => {
+        router.push("/dashboard/clients")
+      }, 2000)
     } catch (err: any) {
       console.error("Error creating client:", err)
       setError(err.message || "Failed to create client")
     } finally {
       setIsLoading(false)
     }
+  }
+
+  // Show success state
+  if (success) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <Card className="w-full max-w-md">
+          <CardContent className="text-center py-12">
+            <CheckCircle className="w-16 h-16 text-green-500 mx-auto mb-4" />
+            <h3 className="text-lg font-medium text-gray-900 mb-2">Client Created Successfully!</h3>
+            <p className="text-gray-500 mb-4">
+              {formData.first_name} {formData.last_name} has been added to your client list.
+            </p>
+            <Button asChild>
+              <Link href="/dashboard/clients">View All Clients</Link>
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    )
   }
 
   const selectedLevel = formData.sah_classification_level ? Number.parseInt(formData.sah_classification_level) : null
