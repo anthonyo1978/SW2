@@ -8,7 +8,29 @@ import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
-import { ArrowLeft, User, Phone, MapPin, Calendar, Heart, DollarSign, Edit, Loader2 } from "lucide-react"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog"
+import {
+  ArrowLeft,
+  User,
+  Phone,
+  MapPin,
+  Calendar,
+  Heart,
+  DollarSign,
+  Edit,
+  Loader2,
+  CheckCircle,
+  ArrowRight,
+  Sparkles,
+} from "lucide-react"
 import { supabase } from "@/lib/supabase"
 
 interface Client {
@@ -39,6 +61,8 @@ export default function ClientDetailPage() {
   const [client, setClient] = useState<Client | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState("")
+  const [converting, setConverting] = useState(false)
+  const [showConvertDialog, setShowConvertDialog] = useState(false)
 
   useEffect(() => {
     if (params.id) {
@@ -62,6 +86,82 @@ export default function ClientDetailPage() {
       setError("Failed to load client")
     } finally {
       setLoading(false)
+    }
+  }
+
+  const handleConvertToActive = async () => {
+    if (!client) return
+
+    setConverting(true)
+    try {
+      // First, get the current user's organization to ensure we have the org_id
+      const {
+        data: { user },
+        error: userError,
+      } = await supabase.auth.getUser()
+
+      if (userError || !user) {
+        throw new Error("User not authenticated")
+      }
+
+      // Get user's profile to get organization_id
+      const { data: profile, error: profileError } = await supabase
+        .from("profiles")
+        .select("organization_id")
+        .eq("id", user.id)
+        .single()
+
+      if (profileError || !profile?.organization_id) {
+        throw new Error("Could not determine user organization")
+      }
+
+      console.log("Converting client with org_id:", profile.organization_id)
+
+      // Update client status to active
+      const { error: updateError } = await supabase
+        .from("clients")
+        .update({
+          status: "active",
+          organization_id: profile.organization_id, // Ensure org_id is set
+        })
+        .eq("id", client.id)
+
+      if (updateError) {
+        console.error("Error updating client:", updateError)
+        throw updateError
+      }
+
+      console.log("Client status updated successfully")
+
+      // The trigger should automatically create buckets, but let's verify
+      // Wait a moment for the trigger to complete
+      await new Promise((resolve) => setTimeout(resolve, 1000))
+
+      // Check if buckets were created
+      const { data: buckets, error: bucketsError } = await supabase
+        .from("client_buckets")
+        .select("*")
+        .eq("client_id", client.id)
+
+      if (bucketsError) {
+        console.error("Error checking buckets:", bucketsError)
+      } else {
+        console.log("Buckets created:", buckets?.length || 0)
+      }
+
+      // Update local state
+      setClient({ ...client, status: "active" })
+      setShowConvertDialog(false)
+
+      // Show success message
+      alert(
+        `🎉 ${client.first_name} ${client.last_name} is now an active client!\n\nFunding buckets have been automatically created and are ready for use.`,
+      )
+    } catch (error: any) {
+      console.error("Error converting client:", error)
+      alert(`Failed to convert client: ${error.message || "Please try again."}`)
+    } finally {
+      setConverting(false)
     }
   }
 
@@ -98,7 +198,7 @@ export default function ClientDetailPage() {
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="text-center">
           <Loader2 className="w-8 h-8 animate-spin mx-auto mb-4 text-blue-600" />
-          <p className="text-gray-600">Loading client details...</p>
+          <div className="text-gray-600">Loading client details...</div>
         </div>
       </div>
     )
@@ -119,9 +219,9 @@ export default function ClientDetailPage() {
             <CardContent className="text-center py-12">
               <User className="w-12 h-12 text-gray-300 mx-auto mb-4" />
               <h3 className="text-lg font-medium text-gray-900 mb-2">Client Not Found</h3>
-              <p className="text-gray-500 mb-4">
+              <div className="text-gray-500 mb-4">
                 The client you're looking for doesn't exist or you don't have permission to view it.
-              </p>
+              </div>
               <Button asChild>
                 <Link href="/dashboard/clients">Back to Clients</Link>
               </Button>
@@ -153,14 +253,142 @@ export default function ClientDetailPage() {
               </div>
             </div>
 
-            <Button asChild>
-              <Link href={`/dashboard/clients/${client.id}/edit`}>
-                <Edit className="w-4 h-4 mr-2" />
-                Edit Client
-              </Link>
-            </Button>
+            <div className="flex gap-2">
+              {/* Convert to Active Button for Prospects */}
+              {client.status === "prospect" && (
+                <Dialog open={showConvertDialog} onOpenChange={setShowConvertDialog}>
+                  <DialogTrigger asChild>
+                    <Button className="bg-green-600 hover:bg-green-700">
+                      <Sparkles className="w-4 h-4 mr-2" />
+                      Convert to Active
+                    </Button>
+                  </DialogTrigger>
+                  <DialogContent className="max-w-md">
+                    <DialogHeader>
+                      <DialogTitle className="flex items-center gap-2">
+                        <Sparkles className="w-5 h-5 text-green-600" />
+                        Convert {client.first_name} to Active Client
+                      </DialogTitle>
+                      <DialogDescription>
+                        Converting this prospect to an active client will unlock all service delivery features.
+                      </DialogDescription>
+                    </DialogHeader>
+
+                    {/* Content outside DialogDescription to avoid nesting issues */}
+                    <div className="space-y-4">
+                      <div className="text-sm text-gray-600">
+                        <div className="font-medium mb-2">This will enable:</div>
+                        <ul className="list-disc list-inside space-y-1 text-sm">
+                          <li>Automatic funding bucket creation</li>
+                          <li>Service scheduling and delivery</li>
+                          <li>Invoicing and billing capabilities</li>
+                          <li>Compliance tracking and reporting</li>
+                        </ul>
+                      </div>
+
+                      <div className="bg-green-50 border border-green-200 rounded-lg p-3">
+                        <div className="text-green-800 text-sm font-medium">
+                          ✅ This will make {client.first_name} a revenue-generating client
+                        </div>
+                      </div>
+                    </div>
+
+                    <DialogFooter>
+                      <Button variant="outline" onClick={() => setShowConvertDialog(false)}>
+                        Cancel
+                      </Button>
+                      <Button
+                        onClick={handleConvertToActive}
+                        disabled={converting}
+                        className="bg-green-600 hover:bg-green-700"
+                      >
+                        {converting ? (
+                          <>
+                            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                            Converting...
+                          </>
+                        ) : (
+                          <>
+                            <ArrowRight className="w-4 h-4 mr-2" />
+                            Convert to Active
+                          </>
+                        )}
+                      </Button>
+                    </DialogFooter>
+                  </DialogContent>
+                </Dialog>
+              )}
+
+              {/* Active Client Features */}
+              {client.status === "active" && (
+                <div className="flex gap-2">
+                  <Button variant="outline" asChild>
+                    <Link href={`/dashboard/clients/${client.id}/buckets`}>
+                      <DollarSign className="w-4 h-4 mr-2" />
+                      Manage Buckets
+                    </Link>
+                  </Button>
+                  <Button variant="outline" asChild>
+                    <Link href={`/dashboard/clients/${client.id}/schedule`}>
+                      <Calendar className="w-4 h-4 mr-2" />
+                      Schedule Services
+                    </Link>
+                  </Button>
+                </div>
+              )}
+
+              <Button asChild>
+                <Link href={`/dashboard/clients/${client.id}/edit`}>
+                  <Edit className="w-4 h-4 mr-2" />
+                  Edit Client
+                </Link>
+              </Button>
+            </div>
           </div>
         </div>
+
+        {/* Status-specific notifications */}
+        {client.status === "prospect" && (
+          <div className="mb-6">
+            <Card className="border-blue-200 bg-blue-50">
+              <CardContent className="pt-6">
+                <div className="flex items-start gap-3">
+                  <div className="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center flex-shrink-0">
+                    <User className="w-4 h-4 text-blue-600" />
+                  </div>
+                  <div>
+                    <h3 className="font-medium text-blue-900">Prospect Client</h3>
+                    <div className="text-blue-700 text-sm mt-1">
+                      This client is currently a prospect. Convert them to Active to unlock scheduling, funding
+                      management, and service delivery features.
+                    </div>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        )}
+
+        {client.status === "active" && (
+          <div className="mb-6">
+            <Card className="border-green-200 bg-green-50">
+              <CardContent className="pt-6">
+                <div className="flex items-start gap-3">
+                  <div className="w-8 h-8 bg-green-100 rounded-full flex items-center justify-center flex-shrink-0">
+                    <CheckCircle className="w-4 h-4 text-green-600" />
+                  </div>
+                  <div>
+                    <h3 className="font-medium text-green-900">Active Client</h3>
+                    <div className="text-green-700 text-sm mt-1">
+                      This client is active and ready for service delivery. Funding buckets are available for budget
+                      management and compliance tracking.
+                    </div>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        )}
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
           {/* Main Content */}
@@ -177,17 +405,17 @@ export default function ClientDetailPage() {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
                     <Label>Full Name</Label>
-                    <p className="font-medium">
+                    <div className="font-medium">
                       {client.first_name} {client.last_name}
-                    </p>
+                    </div>
                   </div>
                   {client.date_of_birth && (
                     <div>
                       <Label>Date of Birth</Label>
-                      <p className="flex items-center gap-1">
+                      <div className="flex items-center gap-1">
                         <Calendar className="w-4 h-4 text-gray-400" />
                         {new Date(client.date_of_birth).toLocaleDateString()}
-                      </p>
+                      </div>
                     </div>
                   )}
                 </div>
@@ -196,19 +424,19 @@ export default function ClientDetailPage() {
                   {client.phone && (
                     <div>
                       <Label>Phone Number</Label>
-                      <p className="flex items-center gap-1">
+                      <div className="flex items-center gap-1">
                         <Phone className="w-4 h-4 text-gray-400" />
                         {client.phone}
-                      </p>
+                      </div>
                     </div>
                   )}
                   {client.address && (
                     <div>
                       <Label>Address</Label>
-                      <p className="flex items-start gap-1">
+                      <div className="flex items-start gap-1">
                         <MapPin className="w-4 h-4 text-gray-400 mt-0.5" />
                         {client.address}
-                      </p>
+                      </div>
                     </div>
                   )}
                 </div>
@@ -278,16 +506,16 @@ export default function ClientDetailPage() {
                   {client.emergency_contact_name && (
                     <div>
                       <Label>Name</Label>
-                      <p className="font-medium">{client.emergency_contact_name}</p>
+                      <div className="font-medium">{client.emergency_contact_name}</div>
                     </div>
                   )}
                   {client.emergency_contact_phone && (
                     <div>
                       <Label>Phone</Label>
-                      <p className="flex items-center gap-1">
+                      <div className="flex items-center gap-1">
                         <Phone className="w-4 h-4 text-gray-400" />
                         {client.emergency_contact_phone}
-                      </p>
+                      </div>
                     </div>
                   )}
                 </CardContent>
@@ -305,34 +533,34 @@ export default function ClientDetailPage() {
               <CardContent className="space-y-3">
                 <div>
                   <Label>Funding Type</Label>
-                  <p className="font-medium capitalize">{client.funding_type?.replace("_", " ")}</p>
+                  <div className="font-medium capitalize">{client.funding_type?.replace("_", " ")}</div>
                 </div>
 
                 {client.sah_classification_level && (
                   <div>
                     <Label>S@H Classification</Label>
-                    <p className="font-medium">Level {client.sah_classification_level}</p>
+                    <div className="font-medium">Level {client.sah_classification_level}</div>
                   </div>
                 )}
 
                 {client.plan_budget && (
                   <div>
                     <Label>Annual Budget</Label>
-                    <p className="text-lg font-bold text-green-600">${client.plan_budget.toLocaleString()}</p>
+                    <div className="text-lg font-bold text-green-600">${client.plan_budget.toLocaleString()}</div>
                   </div>
                 )}
 
                 {client.medicare_number && (
                   <div>
                     <Label>Medicare Number</Label>
-                    <p className="font-medium">{client.medicare_number}</p>
+                    <div className="font-medium">{client.medicare_number}</div>
                   </div>
                 )}
 
                 {client.myagedcare_number && (
                   <div>
                     <Label>My Aged Care Number</Label>
-                    <p className="font-medium">{client.myagedcare_number}</p>
+                    <div className="font-medium">{client.myagedcare_number}</div>
                   </div>
                 )}
               </CardContent>
@@ -346,7 +574,7 @@ export default function ClientDetailPage() {
               <CardContent className="space-y-3">
                 <div>
                   <Label>Client Since</Label>
-                  <p className="font-medium">{new Date(client.created_at).toLocaleDateString()}</p>
+                  <div className="font-medium">{new Date(client.created_at).toLocaleDateString()}</div>
                 </div>
                 <div>
                   <Label>Status</Label>
