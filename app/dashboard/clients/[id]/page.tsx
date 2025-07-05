@@ -30,6 +30,7 @@ import {
   CheckCircle,
   ArrowRight,
   Sparkles,
+  FileText,
 } from "lucide-react"
 import { supabase } from "@/lib/supabase"
 
@@ -66,11 +67,22 @@ export default function ClientDetailPage() {
 
   useEffect(() => {
     if (params.id) {
+      // Redirect to the new client page if someone tries to access /clients/new
+      if (params.id === "new") {
+        router.push("/dashboard/clients/new")
+        return
+      }
       fetchClient(params.id as string)
     }
-  }, [params.id])
+  }, [params.id, router])
 
   const fetchClient = async (clientId: string) => {
+    // Handle the "new" route case
+    if (clientId === "new") {
+      setError("Invalid client ID")
+      return
+    }
+
     try {
       const { data, error } = await supabase.from("clients").select("*").eq("id", clientId).single()
 
@@ -322,6 +334,12 @@ export default function ClientDetailPage() {
               {/* Active Client Features */}
               {client.status === "active" && (
                 <div className="flex gap-2">
+                  <Button variant="outline" asChild>
+                    <Link href={`/dashboard/clients/${client.id}/service-agreement`}>
+                      <FileText className="w-4 h-4 mr-2" />
+                      Service Agreement
+                    </Link>
+                  </Button>
                   <Button variant="outline" asChild>
                     <Link href={`/dashboard/clients/${client.id}/buckets`}>
                       <DollarSign className="w-4 h-4 mr-2" />

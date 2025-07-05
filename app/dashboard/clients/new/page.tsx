@@ -69,8 +69,30 @@ export default function NewClientPage() {
         throw new Error("First name and last name are required")
       }
 
+      // Get current user's organization
+      const {
+        data: { user },
+        error: userError,
+      } = await supabase.auth.getUser()
+
+      if (userError || !user) {
+        throw new Error("User not authenticated")
+      }
+
+      // Get user's profile to get organization_id
+      const { data: profile, error: profileError } = await supabase
+        .from("profiles")
+        .select("organization_id")
+        .eq("id", user.id)
+        .single()
+
+      if (profileError || !profile?.organization_id) {
+        throw new Error("Could not determine user organization")
+      }
+
       // Prepare data for insertion
       const clientData = {
+        organization_id: profile.organization_id, // Explicitly set the org_id
         first_name: formData.first_name.trim(),
         last_name: formData.last_name.trim(),
         date_of_birth: formData.date_of_birth || null,
@@ -112,7 +134,8 @@ export default function NewClientPage() {
 
       // Redirect after a brief delay
       setTimeout(() => {
-        router.push("/dashboard/clients")
+        // Redirect to the client detail page instead of the list
+        router.push(`/dashboard/clients/${data.id}`)
       }, 2000)
     } catch (err: any) {
       console.error("Error creating client:", err)

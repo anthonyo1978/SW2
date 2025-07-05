@@ -32,8 +32,8 @@ export function QuickActionsGrid() {
       bgColor: "bg-purple-50",
     },
     {
-      title: "Bucket Management",
-      description: "Monitor funding and client contributions",
+      title: "Manage Buckets",
+      description: "Configure funding buckets and characteristics",
       icon: DollarSign,
       href: "/dashboard/buckets",
       color: "text-green-600",
