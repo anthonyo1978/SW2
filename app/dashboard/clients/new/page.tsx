@@ -1,27 +1,22 @@
 "use client"
 
-import type React from "react"
-
 import { useState } from "react"
 import { useRouter } from "next/navigation"
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { ArrowLeft, User, Heart, DollarSign, Loader2, AlertCircle, CheckCircle } from "lucide-react"
+import { ArrowLeft, User, Save, Loader2 } from "lucide-react"
 import { supabase } from "@/lib/supabase"
 
 export default function NewClientPage() {
   const router = useRouter()
-  const [isLoading, setIsLoading] = useState(false)
-  const [error, setError] = useState("")
-  const [success, setSuccess] = useState(false)
-
-  // Form state
+  const [loading, setLoading] = useState(false)
   const [formData, setFormData] = useState({
+    // Personal Information
     first_name: "",
     last_name: "",
     date_of_birth: "",
@@ -29,47 +24,66 @@ export default function NewClientPage() {
     address: "",
     emergency_contact_name: "",
     emergency_contact_phone: "",
+
+    // Health & Support Information
     medical_conditions: "",
     medications: "",
     support_goals: "",
-    funding_type: "sah",
+
+    // Funding Information
+    funding_type: "",
     sah_classification_level: "",
+    plan_budget: "",
+    plan_start_date: "",
+    plan_end_date: "",
+
+    // Support at Home Details
+    sah_number: "",
     medicare_number: "",
     pension_type: "",
     myagedcare_number: "",
-    status: "prospect",
   })
 
   const handleInputChange = (field: string, value: string) => {
     setFormData((prev) => ({ ...prev, [field]: value }))
-  }
 
-  const calculateBudget = (level: number) => {
-    const budgets = {
-      1: 10950.84, // Annual budget for Level 1
-      2: 15981.68,
-      3: 21919.76,
-      4: 28763.16,
-      5: 36515.88,
-      6: 45177.92,
-      7: 54749.28,
-      8: 65229.96,
-    }
-    return budgets[level as keyof typeof budgets] || 0
-  }
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    setError("")
-    setIsLoading(true)
-
-    try {
-      // Validation
-      if (!formData.first_name.trim() || !formData.last_name.trim()) {
-        throw new Error("First name and last name are required")
+    // Auto-calculate budget based on S@H classification level
+    if (field === "sah_classification_level" && value) {
+      const level = Number.parseInt(value)
+      const budgetMap: Record<number, number> = {
+        1: 9000,
+        2: 15600,
+        3: 33800,
+        4: 52000,
+        5: 60840,
+        6: 63648,
+        7: 66456,
+        8: 69264,
       }
+      const suggestedBudget = budgetMap[level] || 0
+      setFormData((prev) => ({ ...prev, plan_budget: suggestedBudget.toString() }))
+    }
+  }
 
-      // Get current user's organization
+  const validateForm = () => {
+    if (!formData.first_name.trim()) return "First name is required"
+    if (!formData.last_name.trim()) return "Last name is required"
+    if (formData.phone && !formData.phone.match(/^(\+61|0)[2-9]\d{8}$/)) {
+      return "Please enter a valid Australian phone number"
+    }
+    return null
+  }
+
+  const createClient = async () => {
+    const validationError = validateForm()
+    if (validationError) {
+      alert(validationError)
+      return
+    }
+
+    setLoading(true)
+    try {
+      // Get current user and organization
       const {
         data: { user },
         error: userError,
@@ -79,7 +93,6 @@ export default function NewClientPage() {
         throw new Error("User not authenticated")
       }
 
-      // Get user's profile to get organization_id
       const { data: profile, error: profileError } = await supabase
         .from("profiles")
         .select("organization_id")
@@ -90,83 +103,59 @@ export default function NewClientPage() {
         throw new Error("Could not determine user organization")
       }
 
-      // Prepare data for insertion
-      const clientData = {
-        organization_id: profile.organization_id, // Explicitly set the org_id
-        first_name: formData.first_name.trim(),
-        last_name: formData.last_name.trim(),
-        date_of_birth: formData.date_of_birth || null,
-        phone: formData.phone.trim() || null,
-        address: formData.address.trim() || null,
-        emergency_contact_name: formData.emergency_contact_name.trim() || null,
-        emergency_contact_phone: formData.emergency_contact_phone.trim() || null,
-        medical_conditions: formData.medical_conditions
-          ? formData.medical_conditions.split(",").map((s) => s.trim())
-          : null,
-        medications: formData.medications ? formData.medications.split(",").map((s) => s.trim()) : null,
-        support_goals: formData.support_goals ? formData.support_goals.split(",").map((s) => s.trim()) : null,
-        funding_type: formData.funding_type,
-        sah_classification_level: formData.sah_classification_level
-          ? Number.parseInt(formData.sah_classification_level)
-          : null,
-        plan_budget: formData.sah_classification_level
-          ? calculateBudget(Number.parseInt(formData.sah_classification_level))
-          : null,
-        medicare_number: formData.medicare_number.trim() || null,
-        pension_type: formData.pension_type.trim() || null,
-        myagedcare_number: formData.myagedcare_number.trim() || null,
-        status: formData.status,
-      }
+      // Convert textarea fields to arrays
+      const medical_conditions = formData.medical_conditions
+        ? formData.medical_conditions.split("\n").filter((item) => item.trim())
+        : []
 
-      console.log("Creating client with data:", clientData)
+      const medications = formData.medications ? formData.medications.split("\n").filter((item) => item.trim()) : []
 
-      const { data, error: insertError } = await supabase.from("clients").insert([clientData]).select().single()
+      const support_goals = formData.support_goals
+        ? formData.support_goals.split("\n").filter((item) => item.trim())
+        : []
 
-      if (insertError) {
-        console.error("Insert error:", insertError)
-        throw insertError
-      }
+      // Create client
+      const { data: clientData, error: clientError } = await supabase
+        .from("clients")
+        .insert({
+          organization_id: profile.organization_id,
+          first_name: formData.first_name.trim(),
+          last_name: formData.last_name.trim(),
+          date_of_birth: formData.date_of_birth || null,
+          phone: formData.phone || null,
+          address: formData.address || null,
+          emergency_contact_name: formData.emergency_contact_name || null,
+          emergency_contact_phone: formData.emergency_contact_phone || null,
+          medical_conditions: medical_conditions.length > 0 ? medical_conditions : null,
+          medications: medications.length > 0 ? medications : null,
+          support_goals: support_goals.length > 0 ? support_goals : null,
+          funding_type: formData.funding_type || null,
+          sah_classification_level: formData.sah_classification_level
+            ? Number.parseInt(formData.sah_classification_level)
+            : null,
+          plan_budget: formData.plan_budget ? Number.parseFloat(formData.plan_budget) : null,
+          plan_start_date: formData.plan_start_date || null,
+          plan_end_date: formData.plan_end_date || null,
+          sah_number: formData.sah_number || null,
+          medicare_number: formData.medicare_number || null,
+          pension_type: formData.pension_type || null,
+          myagedcare_number: formData.myagedcare_number || null,
+          status: "prospect",
+        })
+        .select()
+        .single()
 
-      console.log("Client created successfully:", data)
+      if (clientError) throw clientError
 
-      // Show success message
-      setSuccess(true)
-
-      // Redirect after a brief delay
-      setTimeout(() => {
-        // Redirect to the client detail page instead of the list
-        router.push(`/dashboard/clients/${data.id}`)
-      }, 2000)
-    } catch (err: any) {
-      console.error("Error creating client:", err)
-      setError(err.message || "Failed to create client")
+      // Redirect to the new client's detail page
+      router.push(`/dashboard/clients/${clientData.id}`)
+    } catch (error: any) {
+      console.error("Error creating client:", error)
+      alert(`Failed to create client: ${error.message}`)
     } finally {
-      setIsLoading(false)
+      setLoading(false)
     }
   }
-
-  // Show success state
-  if (success) {
-    return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <Card className="w-full max-w-md">
-          <CardContent className="text-center py-12">
-            <CheckCircle className="w-16 h-16 text-green-500 mx-auto mb-4" />
-            <h3 className="text-lg font-medium text-gray-900 mb-2">Client Created Successfully!</h3>
-            <p className="text-gray-500 mb-4">
-              {formData.first_name} {formData.last_name} has been added to your client list.
-            </p>
-            <Button asChild>
-              <Link href="/dashboard/clients">View All Clients</Link>
-            </Button>
-          </CardContent>
-        </Card>
-      </div>
-    )
-  }
-
-  const selectedLevel = formData.sah_classification_level ? Number.parseInt(formData.sah_classification_level) : null
-  const estimatedBudget = selectedLevel ? calculateBudget(selectedLevel) : null
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -177,44 +166,48 @@ export default function NewClientPage() {
             <ArrowLeft className="w-4 h-4 mr-2" />
             Back to Clients
           </Link>
-          <h1 className="text-3xl font-bold text-gray-900">Add New Client</h1>
-          <p className="text-gray-600 mt-1">Create a new participant profile and support plan</p>
+
+          <div className="flex justify-between items-start">
+            <div>
+              <h1 className="text-3xl font-bold text-gray-900">Add New Client</h1>
+              <p className="text-gray-600 mt-1">
+                Create a new client profile with their personal and support information
+              </p>
+            </div>
+          </div>
         </div>
 
-        <form onSubmit={handleSubmit} className="space-y-8">
+        <div className="space-y-8">
           {/* Personal Information */}
           <Card>
             <CardHeader>
-              <div className="flex items-center gap-2">
-                <div className="w-8 h-8 bg-blue-100 rounded-lg flex items-center justify-center">
-                  <User className="w-5 h-5 text-blue-600" />
-                </div>
-                <CardTitle>Personal Information</CardTitle>
-              </div>
+              <CardTitle className="flex items-center gap-2">
+                <User className="w-5 h-5 text-blue-600" />
+                Personal Information
+              </CardTitle>
             </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <CardContent className="space-y-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div>
                   <Label htmlFor="first_name">First Name *</Label>
                   <Input
                     id="first_name"
                     value={formData.first_name}
                     onChange={(e) => handleInputChange("first_name", e.target.value)}
-                    required
+                    placeholder="Enter first name"
                   />
                 </div>
+
                 <div>
                   <Label htmlFor="last_name">Last Name *</Label>
                   <Input
                     id="last_name"
                     value={formData.last_name}
                     onChange={(e) => handleInputChange("last_name", e.target.value)}
-                    required
+                    placeholder="Enter last name"
                   />
                 </div>
-              </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                   <Label htmlFor="date_of_birth">Date of Birth</Label>
                   <Input
@@ -224,108 +217,91 @@ export default function NewClientPage() {
                     onChange={(e) => handleInputChange("date_of_birth", e.target.value)}
                   />
                 </div>
+
                 <div>
                   <Label htmlFor="phone">Phone Number</Label>
                   <Input
                     id="phone"
-                    type="tel"
-                    placeholder="e.g., 02 9876 5432"
                     value={formData.phone}
                     onChange={(e) => handleInputChange("phone", e.target.value)}
+                    placeholder="0412 345 678"
+                  />
+                  <p className="text-xs text-gray-500 mt-1">Australian format: 04XX XXX XXX or +61 4XX XXX XXX</p>
+                </div>
+
+                <div className="md:col-span-2">
+                  <Label htmlFor="address">Address</Label>
+                  <Input
+                    id="address"
+                    value={formData.address}
+                    onChange={(e) => handleInputChange("address", e.target.value)}
+                    placeholder="Enter full address"
                   />
                 </div>
-              </div>
 
-              <div>
-                <Label htmlFor="address">Home Address</Label>
-                <Textarea
-                  id="address"
-                  placeholder="Full residential address"
-                  value={formData.address}
-                  onChange={(e) => handleInputChange("address", e.target.value)}
-                  rows={2}
-                />
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Emergency Contact */}
-          <Card>
-            <CardHeader>
-              <div className="flex items-center gap-2">
-                <div className="w-8 h-8 bg-red-100 rounded-lg flex items-center justify-center">
-                  <AlertCircle className="w-5 h-5 text-red-600" />
-                </div>
-                <CardTitle>Emergency Contact</CardTitle>
-              </div>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
-                  <Label htmlFor="emergency_contact_name">Contact Name</Label>
+                  <Label htmlFor="emergency_contact_name">Emergency Contact Name</Label>
                   <Input
                     id="emergency_contact_name"
-                    placeholder="Full name"
                     value={formData.emergency_contact_name}
                     onChange={(e) => handleInputChange("emergency_contact_name", e.target.value)}
+                    placeholder="Contact person name"
                   />
                 </div>
+
                 <div>
-                  <Label htmlFor="emergency_contact_phone">Contact Phone</Label>
+                  <Label htmlFor="emergency_contact_phone">Emergency Contact Phone</Label>
                   <Input
                     id="emergency_contact_phone"
-                    type="tel"
-                    placeholder="Phone number"
                     value={formData.emergency_contact_phone}
                     onChange={(e) => handleInputChange("emergency_contact_phone", e.target.value)}
+                    placeholder="0412 345 678"
                   />
                 </div>
               </div>
             </CardContent>
           </Card>
 
-          {/* Health Information */}
+          {/* Health & Support Information */}
           <Card>
             <CardHeader>
-              <div className="flex items-center gap-2">
-                <div className="w-8 h-8 bg-green-100 rounded-lg flex items-center justify-center">
-                  <Heart className="w-5 h-5 text-green-600" />
-                </div>
-                <CardTitle>Health & Support Information</CardTitle>
-              </div>
+              <CardTitle>Health & Support Information</CardTitle>
             </CardHeader>
-            <CardContent className="space-y-4">
+            <CardContent className="space-y-6">
               <div>
                 <Label htmlFor="medical_conditions">Medical Conditions</Label>
                 <Textarea
                   id="medical_conditions"
-                  placeholder="Separate multiple conditions with commas"
                   value={formData.medical_conditions}
                   onChange={(e) => handleInputChange("medical_conditions", e.target.value)}
-                  rows={2}
+                  placeholder="List medical conditions (one per line)"
+                  rows={4}
                 />
+                <p className="text-xs text-gray-500 mt-1">Enter each condition on a new line</p>
               </div>
 
               <div>
                 <Label htmlFor="medications">Current Medications</Label>
                 <Textarea
                   id="medications"
-                  placeholder="Separate multiple medications with commas"
                   value={formData.medications}
                   onChange={(e) => handleInputChange("medications", e.target.value)}
-                  rows={2}
+                  placeholder="List current medications (one per line)"
+                  rows={4}
                 />
+                <p className="text-xs text-gray-500 mt-1">Enter each medication on a new line</p>
               </div>
 
               <div>
                 <Label htmlFor="support_goals">Support Goals</Label>
                 <Textarea
                   id="support_goals"
-                  placeholder="What are the client's main support objectives?"
                   value={formData.support_goals}
                   onChange={(e) => handleInputChange("support_goals", e.target.value)}
-                  rows={3}
+                  placeholder="List support goals and objectives (one per line)"
+                  rows={4}
                 />
+                <p className="text-xs text-gray-500 mt-1">Enter each goal on a new line</p>
               </div>
             </CardContent>
           </Card>
@@ -333,15 +309,10 @@ export default function NewClientPage() {
           {/* Funding Information */}
           <Card>
             <CardHeader>
-              <div className="flex items-center gap-2">
-                <div className="w-8 h-8 bg-yellow-100 rounded-lg flex items-center justify-center">
-                  <DollarSign className="w-5 h-5 text-yellow-600" />
-                </div>
-                <CardTitle>Funding & Classification</CardTitle>
-              </div>
+              <CardTitle>Funding Information</CardTitle>
             </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <CardContent className="space-y-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div>
                   <Label htmlFor="funding_type">Funding Type</Label>
                   <Select
@@ -349,13 +320,12 @@ export default function NewClientPage() {
                     onValueChange={(value) => handleInputChange("funding_type", value)}
                   >
                     <SelectTrigger>
-                      <SelectValue />
+                      <SelectValue placeholder="Select funding type" />
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="sah">Support at Home (S@H)</SelectItem>
-                      <SelectItem value="aged_care">My Aged Care</SelectItem>
-                      <SelectItem value="private">Private Pay</SelectItem>
-                      <SelectItem value="ndis">NDIS</SelectItem>
+                      <SelectItem value="private">Private</SelectItem>
+                      <SelectItem value="aged_care">Aged Care</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
@@ -370,114 +340,123 @@ export default function NewClientPage() {
                       <SelectValue placeholder="Select level" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="1">Level 1 - Basic Support</SelectItem>
-                      <SelectItem value="2">Level 2 - Low Support</SelectItem>
-                      <SelectItem value="3">Level 3 - Intermediate Support</SelectItem>
-                      <SelectItem value="4">Level 4 - High Support</SelectItem>
-                      <SelectItem value="5">Level 5 - Intensive Support</SelectItem>
-                      <SelectItem value="6">Level 6 - Extensive Support</SelectItem>
-                      <SelectItem value="7">Level 7 - Comprehensive Support</SelectItem>
-                      <SelectItem value="8">Level 8 - Complex Support</SelectItem>
+                      <SelectItem value="1">Level 1 ($9,000)</SelectItem>
+                      <SelectItem value="2">Level 2 ($15,600)</SelectItem>
+                      <SelectItem value="3">Level 3 ($33,800)</SelectItem>
+                      <SelectItem value="4">Level 4 ($52,000)</SelectItem>
+                      <SelectItem value="5">Level 5 ($60,840)</SelectItem>
+                      <SelectItem value="6">Level 6 ($63,648)</SelectItem>
+                      <SelectItem value="7">Level 7 ($66,456)</SelectItem>
+                      <SelectItem value="8">Level 8 ($69,264)</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
-              </div>
 
-              {estimatedBudget && (
-                <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                  <div className="flex items-center gap-2 mb-2">
-                    <DollarSign className="w-4 h-4 text-blue-600" />
-                    <span className="font-medium text-blue-900">Estimated Annual Budget</span>
-                  </div>
-                  <div className="text-2xl font-bold text-blue-600">${estimatedBudget.toLocaleString()}</div>
-                  <p className="text-sm text-blue-700 mt-1">Based on S@H Level {selectedLevel} classification</p>
+                <div>
+                  <Label htmlFor="plan_budget">Plan Budget (AUD)</Label>
+                  <Input
+                    id="plan_budget"
+                    type="number"
+                    step="0.01"
+                    value={formData.plan_budget}
+                    onChange={(e) => handleInputChange("plan_budget", e.target.value)}
+                    placeholder="0.00"
+                  />
+                  <p className="text-xs text-gray-500 mt-1">Auto-calculated based on S@H level</p>
                 </div>
-              )}
 
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div>
+                  <Label htmlFor="pension_type">Pension Type</Label>
+                  <Select
+                    value={formData.pension_type}
+                    onValueChange={(value) => handleInputChange("pension_type", value)}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select pension type" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="age_pension">Age Pension</SelectItem>
+                      <SelectItem value="disability_pension">Disability Support Pension</SelectItem>
+                      <SelectItem value="carer_pension">Carer Pension</SelectItem>
+                      <SelectItem value="veteran_pension">Veteran Pension</SelectItem>
+                      <SelectItem value="none">No Pension</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div>
+                  <Label htmlFor="plan_start_date">Plan Start Date</Label>
+                  <Input
+                    id="plan_start_date"
+                    type="date"
+                    value={formData.plan_start_date}
+                    onChange={(e) => handleInputChange("plan_start_date", e.target.value)}
+                  />
+                </div>
+
+                <div>
+                  <Label htmlFor="plan_end_date">Plan End Date</Label>
+                  <Input
+                    id="plan_end_date"
+                    type="date"
+                    value={formData.plan_end_date}
+                    onChange={(e) => handleInputChange("plan_end_date", e.target.value)}
+                  />
+                </div>
+
+                <div>
+                  <Label htmlFor="sah_number">S@H Number</Label>
+                  <Input
+                    id="sah_number"
+                    value={formData.sah_number}
+                    onChange={(e) => handleInputChange("sah_number", e.target.value)}
+                    placeholder="Support at Home number"
+                  />
+                </div>
+
                 <div>
                   <Label htmlFor="medicare_number">Medicare Number</Label>
                   <Input
                     id="medicare_number"
-                    placeholder="Medicare number"
                     value={formData.medicare_number}
                     onChange={(e) => handleInputChange("medicare_number", e.target.value)}
+                    placeholder="Medicare card number"
                   />
                 </div>
-                <div>
-                  <Label htmlFor="pension_type">Pension Type</Label>
-                  <Input
-                    id="pension_type"
-                    placeholder="e.g., Age Pension"
-                    value={formData.pension_type}
-                    onChange={(e) => handleInputChange("pension_type", e.target.value)}
-                  />
-                </div>
+
                 <div>
                   <Label htmlFor="myagedcare_number">My Aged Care Number</Label>
                   <Input
                     id="myagedcare_number"
-                    placeholder="My Aged Care ID"
                     value={formData.myagedcare_number}
                     onChange={(e) => handleInputChange("myagedcare_number", e.target.value)}
+                    placeholder="My Aged Care reference number"
                   />
                 </div>
               </div>
             </CardContent>
           </Card>
 
-          {/* Status */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Client Status</CardTitle>
-              <CardDescription>Set the initial status for this client</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div>
-                <Label htmlFor="status">Status</Label>
-                <Select value={formData.status} onValueChange={(value) => handleInputChange("status", value)}>
-                  <SelectTrigger className="w-full md:w-64">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="prospect">Prospect - Initial inquiry</SelectItem>
-                    <SelectItem value="active">Active - Receiving services</SelectItem>
-                    <SelectItem value="deactivated">Deactivated - No longer active</SelectItem>
-                  </SelectContent>
-                </Select>
-                {formData.status === "active" && (
-                  <p className="text-sm text-green-600 mt-2">
-                    ✅ Setting to Active will automatically create funding buckets for this client
-                  </p>
-                )}
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Error Display */}
-          {error && (
-            <div className="bg-red-50 border border-red-200 rounded-lg p-4">
-              <p className="text-red-600 text-sm">{error}</p>
-            </div>
-          )}
-
-          {/* Submit Buttons */}
+          {/* Actions */}
           <div className="flex justify-end gap-4">
-            <Button type="button" variant="outline" asChild>
+            <Button variant="outline" asChild>
               <Link href="/dashboard/clients">Cancel</Link>
             </Button>
-            <Button type="submit" disabled={isLoading}>
-              {isLoading ? (
+            <Button onClick={createClient} disabled={loading || !formData.first_name || !formData.last_name}>
+              {loading ? (
                 <>
                   <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                  Creating Client...
+                  Creating...
                 </>
               ) : (
-                "Create Client"
+                <>
+                  <Save className="w-4 h-4 mr-2" />
+                  Create Client
+                </>
               )}
             </Button>
           </div>
-        </form>
+        </div>
       </div>
     </div>
   )
