@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -33,7 +33,9 @@ import {
   Shield,
   Copy,
   Edit,
+  AlertCircle,
 } from "lucide-react"
+import { createClient } from "@/lib/supabase"
 
 interface BucketCharacteristic {
   id: string
@@ -46,6 +48,7 @@ interface BucketCharacteristic {
 
 interface BucketTemplate {
   id: string
+  organization_id: string
   name: string
   description: string
   category: "draw_down" | "fill_up"
@@ -54,10 +57,11 @@ interface BucketTemplate {
   credit_limit?: number
   characteristics: BucketCharacteristic[]
   created_at: string
+  updated_at: string
   is_active: boolean
 }
 
-// Predefined characteristics templates
+// Predefined characteristics templates - these are the flexible building blocks users can choose from
 const CHARACTERISTIC_TEMPLATES: Record<string, BucketCharacteristic[]> = {
   draw_down: [
     {
@@ -65,7 +69,7 @@ const CHARACTERISTIC_TEMPLATES: Record<string, BucketCharacteristic[]> = {
       name: "Zero Balance Behavior",
       type: "draw_down_only",
       category: "behavior",
-      enabled: true,
+      enabled: false,
       config: {
         action: "block_services",
         overdraft_limit: 0,
@@ -78,7 +82,7 @@ const CHARACTERISTIC_TEMPLATES: Record<string, BucketCharacteristic[]> = {
       name: "Low Balance Warning",
       type: "draw_down_only",
       category: "alert",
-      enabled: true,
+      enabled: false,
       config: {
         threshold_percentage: 20,
         threshold_amount: 1000,
@@ -93,7 +97,7 @@ const CHARACTERISTIC_TEMPLATES: Record<string, BucketCharacteristic[]> = {
       name: "Fill Level Alerts",
       type: "fill_up_only",
       category: "alert",
-      enabled: true,
+      enabled: false,
       config: {
         alert_levels: [25, 50, 75, 90],
         notification_enabled: true,
@@ -106,7 +110,7 @@ const CHARACTERISTIC_TEMPLATES: Record<string, BucketCharacteristic[]> = {
       name: "Capacity Management",
       type: "fill_up_only",
       category: "behavior",
-      enabled: true,
+      enabled: false,
       config: {
         max_capacity_action: "stop_accumulation",
         overflow_bucket_id: null,
@@ -134,7 +138,7 @@ const CHARACTERISTIC_TEMPLATES: Record<string, BucketCharacteristic[]> = {
       name: "Compliance Monitoring",
       type: "common",
       category: "compliance",
-      enabled: true,
+      enabled: false,
       config: {
         track_utilization: true,
         compliance_threshold: 95,
@@ -147,7 +151,7 @@ const CHARACTERISTIC_TEMPLATES: Record<string, BucketCharacteristic[]> = {
       name: "Rollover Policy",
       type: "common",
       category: "reset",
-      enabled: true,
+      enabled: false,
       config: {
         rollover_type: "percentage",
         rollover_percentage: 100,
@@ -159,80 +163,78 @@ const CHARACTERISTIC_TEMPLATES: Record<string, BucketCharacteristic[]> = {
 }
 
 export default function BucketsPage() {
-  const [bucketTemplates, setBucketTemplates] = useState<BucketTemplate[]>([
-    {
-      id: "template-1",
-      name: "Standard Government S@H",
-      description: "Standard Support at Home government funding bucket with compliance monitoring",
-      category: "draw_down",
-      funding_source: "government",
-      starting_amount: 50000,
-      characteristics: [
-        ...CHARACTERISTIC_TEMPLATES.draw_down,
-        ...CHARACTERISTIC_TEMPLATES.common.map((c) => ({ ...c, enabled: c.id === "compliance-monitoring" })),
-      ],
-      created_at: "2024-01-15",
-      is_active: true,
-    },
-    {
-      id: "template-2",
-      name: "Client Co-Payment Standard",
-      description: "Standard client co-payment bucket with automatic invoicing at 80% capacity",
-      category: "fill_up",
-      funding_source: "client",
-      credit_limit: 15000,
-      characteristics: [
-        ...CHARACTERISTIC_TEMPLATES.fill_up.map((c) => ({
-          ...c,
-          config: c.id === "threshold-alerts" ? { ...c.config, auto_invoice: true, invoice_threshold: 80 } : c.config,
-        })),
-        ...CHARACTERISTIC_TEMPLATES.common.map((c) => ({ ...c, enabled: c.id === "rollover-policy" })),
-      ],
-      created_at: "2024-01-15",
-      is_active: true,
-    },
-    {
-      id: "template-3",
-      name: "NDIS Core Supports",
-      description: "NDIS funding bucket with quarterly reset and strict compliance monitoring",
-      category: "draw_down",
-      funding_source: "government",
-      starting_amount: 75000,
-      characteristics: [
-        ...CHARACTERISTIC_TEMPLATES.draw_down,
-        ...CHARACTERISTIC_TEMPLATES.common.map((c) => ({
-          ...c,
-          enabled: c.id === "reset-timer" || c.id === "compliance-monitoring",
-          config:
-            c.id === "reset-timer"
-              ? { ...c.config, reset_frequency: "quarterly", carry_over_percentage: 20 }
-              : c.config,
-        })),
-      ],
-      created_at: "2024-01-20",
-      is_active: true,
-    },
-  ])
-
+  // Start with empty templates - users build their own
+  const [bucketTemplates, setBucketTemplates] = useState<BucketTemplate[]>([])
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
   const [selectedTemplate, setSelectedTemplate] = useState<BucketTemplate | null>(null)
   const [showTemplateDialog, setShowTemplateDialog] = useState(false)
   const [isCreatingNew, setIsCreatingNew] = useState(false)
   const [activeTab, setActiveTab] = useState("draw_down")
 
+  useEffect(() => {
+    loadBucketTemplates()
+  }, [])
+
+  const loadBucketTemplates = async () => {
+    try {
+      setError(null)
+      const supabase = createClient()
+
+      // First check if user is authenticated
+      const {
+        data: { user },
+      } = await supabase.auth.getUser()
+      if (!user) {
+        setError("User not authenticated")
+        return
+      }
+
+      const { data, error } = await supabase
+        .from("bucket_templates")
+        .select("*")
+        .order("created_at", { ascending: false })
+
+      if (error) {
+        console.error("Database error:", error)
+        setError(`Failed to load templates: ${error.message}`)
+        return
+      }
+
+      // Parse characteristics JSON and ensure proper structure
+      const templatesWithParsedCharacteristics =
+        data?.map((template) => ({
+          ...template,
+          characteristics: Array.isArray(template.characteristics) ? template.characteristics : [],
+        })) || []
+
+      setBucketTemplates(templatesWithParsedCharacteristics)
+    } catch (error) {
+      console.error("Error loading bucket templates:", error)
+      setError("Failed to load bucket templates")
+    } finally {
+      setLoading(false)
+    }
+  }
+
   const createNewTemplate = (category: "draw_down" | "fill_up") => {
     const newTemplate: BucketTemplate = {
       id: `template-${Date.now()}`,
+      organization_id: "", // Will be set by the backend
       name: `New ${category === "draw_down" ? "Draw-Down" : "Fill-Up"} Bucket`,
       description: "",
       category,
       funding_source: category === "draw_down" ? "government" : "client",
       starting_amount: category === "draw_down" ? 10000 : undefined,
       credit_limit: category === "fill_up" ? 5000 : undefined,
+      // Provide all available characteristics as building blocks - all disabled by default
       characteristics: [
         ...(category === "draw_down" ? CHARACTERISTIC_TEMPLATES.draw_down : CHARACTERISTIC_TEMPLATES.fill_up),
-        ...CHARACTERISTIC_TEMPLATES.common.map((c) => ({ ...c, enabled: false })),
+        ...CHARACTERISTIC_TEMPLATES.common,
       ],
-      created_at: new Date().toISOString().split("T")[0],
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
       is_active: true,
     }
     setSelectedTemplate(newTemplate)
@@ -246,30 +248,141 @@ export default function BucketsPage() {
     setShowTemplateDialog(true)
   }
 
-  const duplicateTemplate = (template: BucketTemplate) => {
-    const duplicated: BucketTemplate = {
-      ...template,
-      id: `template-${Date.now()}`,
-      name: `${template.name} (Copy)`,
-      created_at: new Date().toISOString().split("T")[0],
+  const duplicateTemplate = async (template: BucketTemplate) => {
+    try {
+      setSaving(true)
+      setError(null)
+      const supabase = createClient()
+
+      // Get current user's organization
+      const {
+        data: { user },
+      } = await supabase.auth.getUser()
+      if (!user) {
+        setError("User not authenticated")
+        return
+      }
+
+      const duplicated = {
+        name: `${template.name} (Copy)`,
+        description: template.description,
+        category: template.category,
+        funding_source: template.funding_source,
+        starting_amount: template.starting_amount,
+        credit_limit: template.credit_limit,
+        characteristics: template.characteristics,
+        is_active: template.is_active,
+      }
+
+      const { error } = await supabase.from("bucket_templates").insert([duplicated])
+
+      if (error) {
+        console.error("Database error:", error)
+        setError(`Failed to duplicate template: ${error.message}`)
+        return
+      }
+
+      await loadBucketTemplates()
+    } catch (error) {
+      console.error("Error duplicating template:", error)
+      setError("Failed to duplicate template")
+    } finally {
+      setSaving(false)
     }
-    setBucketTemplates((prev) => [...prev, duplicated])
   }
 
-  const deleteTemplate = (templateId: string) => {
-    setBucketTemplates((prev) => prev.filter((t) => t.id !== templateId))
+  const deleteTemplate = async (templateId: string) => {
+    try {
+      setSaving(true)
+      setError(null)
+      const supabase = createClient()
+
+      const { error } = await supabase.from("bucket_templates").delete().eq("id", templateId)
+
+      if (error) {
+        console.error("Database error:", error)
+        setError(`Failed to delete template: ${error.message}`)
+        return
+      }
+
+      await loadBucketTemplates()
+    } catch (error) {
+      console.error("Error deleting template:", error)
+      setError("Failed to delete template")
+    } finally {
+      setSaving(false)
+    }
   }
 
-  const saveTemplate = () => {
+  const saveTemplate = async () => {
     if (!selectedTemplate) return
 
-    if (isCreatingNew) {
-      setBucketTemplates((prev) => [...prev, selectedTemplate])
-    } else {
-      setBucketTemplates((prev) => prev.map((t) => (t.id === selectedTemplate.id ? selectedTemplate : t)))
+    try {
+      setSaving(true)
+      setError(null)
+      const supabase = createClient()
+
+      // Get current user's organization
+      const {
+        data: { user },
+      } = await supabase.auth.getUser()
+      if (!user) {
+        setError("User not authenticated")
+        return
+      }
+
+      // Get user's organization ID from their profile
+      const { data: profile, error: profileError } = await supabase
+        .from("profiles")
+        .select("organization_id")
+        .eq("id", user.id)
+        .single()
+
+      if (profileError || !profile?.organization_id) {
+        console.error("Profile error:", profileError)
+        setError("Could not determine user organization")
+        return
+      }
+
+      const templateData = {
+        name: selectedTemplate.name,
+        description: selectedTemplate.description,
+        category: selectedTemplate.category,
+        funding_source: selectedTemplate.funding_source,
+        starting_amount: selectedTemplate.starting_amount,
+        credit_limit: selectedTemplate.credit_limit,
+        characteristics: selectedTemplate.characteristics,
+        is_active: selectedTemplate.is_active,
+        organization_id: profile.organization_id, // Explicitly set the organization_id
+      }
+
+      if (isCreatingNew) {
+        const { error } = await supabase.from("bucket_templates").insert([templateData])
+
+        if (error) {
+          console.error("Database error:", error)
+          setError(`Failed to create template: ${error.message}`)
+          return
+        }
+      } else {
+        const { error } = await supabase.from("bucket_templates").update(templateData).eq("id", selectedTemplate.id)
+
+        if (error) {
+          console.error("Database error:", error)
+          setError(`Failed to update template: ${error.message}`)
+          return
+        }
+      }
+
+      await loadBucketTemplates()
+      setShowTemplateDialog(false)
+      setSelectedTemplate(null)
+    } catch (error) {
+      console.error("Error saving template:", error)
+      setError("Failed to save template")
+    } finally {
+      setSaving(false)
     }
-    setShowTemplateDialog(false)
-    setSelectedTemplate(null)
   }
 
   const updateTemplateCharacteristic = (characteristicId: string, updates: Partial<BucketCharacteristic>) => {
@@ -323,9 +436,34 @@ export default function BucketsPage() {
   const drawDownTemplates = bucketTemplates.filter((t) => t.category === "draw_down")
   const fillUpTemplates = bucketTemplates.filter((t) => t.category === "fill_up")
 
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-4"></div>
+          <p className="text-gray-600">Loading bucket templates...</p>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="min-h-screen bg-gray-50">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        {/* Error Display */}
+        {error && (
+          <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg flex items-center gap-2">
+            <AlertCircle className="w-5 h-5 text-red-600" />
+            <div>
+              <p className="text-red-800 font-medium">Error</p>
+              <p className="text-red-700 text-sm">{error}</p>
+            </div>
+            <Button variant="outline" size="sm" onClick={() => setError(null)} className="ml-auto">
+              Dismiss
+            </Button>
+          </div>
+        )}
+
         {/* Breadcrumb Navigation */}
         <nav className="flex items-center space-x-2 text-sm text-gray-500 mb-6">
           <Link href="/dashboard" className="flex items-center hover:text-gray-700 transition-colors">
@@ -352,11 +490,11 @@ export default function BucketsPage() {
           </div>
 
           <div className="flex gap-3">
-            <Button variant="outline" onClick={() => createNewTemplate("draw_down")}>
+            <Button variant="outline" onClick={() => createNewTemplate("draw_down")} disabled={saving}>
               <TrendingDown className="w-4 h-4 mr-2" />
               New Draw-Down
             </Button>
-            <Button variant="outline" onClick={() => createNewTemplate("fill_up")}>
+            <Button variant="outline" onClick={() => createNewTemplate("fill_up")} disabled={saving}>
               <TrendingUp className="w-4 h-4 mr-2" />
               New Fill-Up
             </Button>
@@ -407,7 +545,7 @@ export default function BucketsPage() {
                 </div>
                 <div className="mt-4 pt-4 border-t border-green-200">
                   <div className="flex justify-between items-center">
-                    <span className="text-sm font-medium text-green-800">Active Templates</span>
+                    <span className="text-sm font-medium text-green-800">Your Templates</span>
                     <Badge variant="outline" className="text-green-700 border-green-300">
                       {drawDownTemplates.length}
                     </Badge>
@@ -449,7 +587,7 @@ export default function BucketsPage() {
                 </div>
                 <div className="mt-4 pt-4 border-t border-blue-200">
                   <div className="flex justify-between items-center">
-                    <span className="text-sm font-medium text-blue-800">Active Templates</span>
+                    <span className="text-sm font-medium text-blue-800">Your Templates</span>
                     <Badge variant="outline" className="text-blue-700 border-blue-300">
                       {fillUpTemplates.length}
                     </Badge>
@@ -493,7 +631,7 @@ export default function BucketsPage() {
           <TabsContent value="draw_down" className="space-y-4">
             <div className="flex justify-between items-center">
               <h3 className="text-lg font-semibold text-gray-900">Draw-Down Bucket Templates</h3>
-              <Button onClick={() => createNewTemplate("draw_down")}>
+              <Button onClick={() => createNewTemplate("draw_down")} disabled={saving}>
                 <Plus className="w-4 h-4 mr-2" />
                 Create New Template
               </Button>
@@ -532,7 +670,7 @@ export default function BucketsPage() {
                       <span className="text-gray-500 text-sm">Active Characteristics</span>
                       <div className="flex flex-wrap gap-1 mt-1">
                         {template.characteristics
-                          .filter((c) => c.enabled)
+                          ?.filter((c) => c.enabled)
                           .slice(0, 3)
                           .map((char) => {
                             const CharIcon = getCharacteristicIcon(char.category)
@@ -548,20 +686,29 @@ export default function BucketsPage() {
                               </div>
                             )
                           })}
-                        {template.characteristics.filter((c) => c.enabled).length > 3 && (
+                        {(template.characteristics?.filter((c) => c.enabled).length || 0) > 3 && (
                           <Badge variant="outline" className="text-xs">
-                            +{template.characteristics.filter((c) => c.enabled).length - 3}
+                            +{(template.characteristics?.filter((c) => c.enabled).length || 0) - 3}
                           </Badge>
+                        )}
+                        {(template.characteristics?.filter((c) => c.enabled).length || 0) === 0 && (
+                          <span className="text-xs text-gray-400 italic">No characteristics enabled</span>
                         )}
                       </div>
                     </div>
 
                     <div className="flex gap-2 pt-2 border-t">
-                      <Button size="sm" variant="outline" onClick={() => editTemplate(template)} className="flex-1">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => editTemplate(template)}
+                        className="flex-1"
+                        disabled={saving}
+                      >
                         <Edit className="w-3 h-3 mr-1" />
                         Edit
                       </Button>
-                      <Button size="sm" variant="outline" onClick={() => duplicateTemplate(template)}>
+                      <Button size="sm" variant="outline" onClick={() => duplicateTemplate(template)} disabled={saving}>
                         <Copy className="w-3 h-3" />
                       </Button>
                       <Button
@@ -569,6 +716,7 @@ export default function BucketsPage() {
                         variant="outline"
                         onClick={() => deleteTemplate(template.id)}
                         className="text-red-600 hover:text-red-700"
+                        disabled={saving}
                       >
                         <Trash2 className="w-3 h-3" />
                       </Button>
@@ -580,11 +728,14 @@ export default function BucketsPage() {
               {drawDownTemplates.length === 0 && (
                 <div className="col-span-full text-center py-12">
                   <TrendingDown className="w-12 h-12 text-gray-300 mx-auto mb-4" />
-                  <h3 className="text-lg font-medium text-gray-900 mb-2">No Draw-Down Templates</h3>
-                  <p className="text-gray-500 mb-4">Create your first draw-down bucket template to get started</p>
-                  <Button onClick={() => createNewTemplate("draw_down")}>
+                  <h3 className="text-lg font-medium text-gray-900 mb-2">No Draw-Down Templates Yet</h3>
+                  <p className="text-gray-500 mb-4 max-w-md mx-auto">
+                    Create your first draw-down bucket template. Design your own funding logic with flexible
+                    characteristics that match your specific needs.
+                  </p>
+                  <Button onClick={() => createNewTemplate("draw_down")} disabled={saving}>
                     <Plus className="w-4 h-4 mr-2" />
-                    Create Template
+                    Create Your First Template
                   </Button>
                 </div>
               )}
@@ -594,7 +745,7 @@ export default function BucketsPage() {
           <TabsContent value="fill_up" className="space-y-4">
             <div className="flex justify-between items-center">
               <h3 className="text-lg font-semibold text-gray-900">Fill-Up Bucket Templates</h3>
-              <Button onClick={() => createNewTemplate("fill_up")}>
+              <Button onClick={() => createNewTemplate("fill_up")} disabled={saving}>
                 <Plus className="w-4 h-4 mr-2" />
                 Create New Template
               </Button>
@@ -633,7 +784,7 @@ export default function BucketsPage() {
                       <span className="text-gray-500 text-sm">Active Characteristics</span>
                       <div className="flex flex-wrap gap-1 mt-1">
                         {template.characteristics
-                          .filter((c) => c.enabled)
+                          ?.filter((c) => c.enabled)
                           .slice(0, 3)
                           .map((char) => {
                             const CharIcon = getCharacteristicIcon(char.category)
@@ -649,20 +800,29 @@ export default function BucketsPage() {
                               </div>
                             )
                           })}
-                        {template.characteristics.filter((c) => c.enabled).length > 3 && (
+                        {(template.characteristics?.filter((c) => c.enabled).length || 0) > 3 && (
                           <Badge variant="outline" className="text-xs">
-                            +{template.characteristics.filter((c) => c.enabled).length - 3}
+                            +{(template.characteristics?.filter((c) => c.enabled).length || 0) - 3}
                           </Badge>
+                        )}
+                        {(template.characteristics?.filter((c) => c.enabled).length || 0) === 0 && (
+                          <span className="text-xs text-gray-400 italic">No characteristics enabled</span>
                         )}
                       </div>
                     </div>
 
                     <div className="flex gap-2 pt-2 border-t">
-                      <Button size="sm" variant="outline" onClick={() => editTemplate(template)} className="flex-1">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => editTemplate(template)}
+                        className="flex-1"
+                        disabled={saving}
+                      >
                         <Edit className="w-3 h-3 mr-1" />
                         Edit
                       </Button>
-                      <Button size="sm" variant="outline" onClick={() => duplicateTemplate(template)}>
+                      <Button size="sm" variant="outline" onClick={() => duplicateTemplate(template)} disabled={saving}>
                         <Copy className="w-3 h-3" />
                       </Button>
                       <Button
@@ -670,6 +830,7 @@ export default function BucketsPage() {
                         variant="outline"
                         onClick={() => deleteTemplate(template.id)}
                         className="text-red-600 hover:text-red-700"
+                        disabled={saving}
                       >
                         <Trash2 className="w-3 h-3" />
                       </Button>
@@ -681,11 +842,14 @@ export default function BucketsPage() {
               {fillUpTemplates.length === 0 && (
                 <div className="col-span-full text-center py-12">
                   <TrendingUp className="w-12 h-12 text-gray-300 mx-auto mb-4" />
-                  <h3 className="text-lg font-medium text-gray-900 mb-2">No Fill-Up Templates</h3>
-                  <p className="text-gray-500 mb-4">Create your first fill-up bucket template to get started</p>
-                  <Button onClick={() => createNewTemplate("fill_up")}>
+                  <h3 className="text-lg font-medium text-gray-900 mb-2">No Fill-Up Templates Yet</h3>
+                  <p className="text-gray-500 mb-4 max-w-md mx-auto">
+                    Create your first fill-up bucket template. Build custom billing logic with flexible characteristics
+                    that fit your business model.
+                  </p>
+                  <Button onClick={() => createNewTemplate("fill_up")} disabled={saving}>
                     <Plus className="w-4 h-4 mr-2" />
-                    Create Template
+                    Create Your First Template
                   </Button>
                 </div>
               )}
@@ -707,7 +871,8 @@ export default function BucketsPage() {
                 {selectedTemplate?.category === "draw_down" ? "Draw-Down" : "Fill-Up"} Bucket Template
               </DialogTitle>
               <DialogDescription>
-                Configure the properties and characteristics for this bucket template
+                Configure the properties and characteristics for this bucket template. Choose which characteristics to
+                enable and customize their behavior.
               </DialogDescription>
             </DialogHeader>
 
@@ -753,6 +918,8 @@ export default function BucketsPage() {
                           <SelectItem value="client">Client</SelectItem>
                           <SelectItem value="insurance">Insurance</SelectItem>
                           <SelectItem value="grant">Grant</SelectItem>
+                          <SelectItem value="ndis">NDIS</SelectItem>
+                          <SelectItem value="private">Private</SelectItem>
                         </SelectContent>
                       </Select>
                     </div>
@@ -818,7 +985,10 @@ export default function BucketsPage() {
 
                 <TabsContent value="characteristics" className="space-y-4">
                   <div className="flex justify-between items-center">
-                    <h4 className="font-medium">Bucket Characteristics</h4>
+                    <div>
+                      <h4 className="font-medium">Bucket Characteristics</h4>
+                      <p className="text-sm text-gray-500">Choose which characteristics to enable for this template</p>
+                    </div>
                     <Badge variant="outline" className="text-xs">
                       {selectedTemplate.characteristics?.filter((c) => c.enabled).length || 0} Active
                     </Badge>
@@ -1192,9 +1362,9 @@ export default function BucketsPage() {
               <Button variant="outline" onClick={() => setShowTemplateDialog(false)}>
                 Cancel
               </Button>
-              <Button onClick={saveTemplate}>
+              <Button onClick={saveTemplate} disabled={saving}>
                 <Save className="w-4 h-4 mr-2" />
-                {isCreatingNew ? "Create Template" : "Save Changes"}
+                {saving ? "Saving..." : isCreatingNew ? "Create Template" : "Save Changes"}
               </Button>
             </DialogFooter>
           </DialogContent>
