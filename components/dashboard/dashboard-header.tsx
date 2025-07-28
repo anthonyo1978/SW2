@@ -27,6 +27,7 @@ import {
   X,
   Building2,
   ChevronDown,
+  Wrench,
 } from "lucide-react"
 import { supabase } from "@/lib/supabase"
 
@@ -160,6 +161,12 @@ export function DashboardHeader() {
       href: "/dashboard/contracts",
       icon: Briefcase,
       current: pathname.startsWith("/dashboard/contracts"),
+    },
+    {
+      name: "Services",
+      href: "/dashboard/services",
+      icon: Wrench,
+      current: pathname.startsWith("/dashboard/services"),
     },
     {
       name: "Transactions",
