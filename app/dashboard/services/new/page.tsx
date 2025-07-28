@@ -50,7 +50,7 @@ export default function NewServicePage() {
     effective_from: "",
     effective_to: "",
     notes: "",
-    is_active: true,
+    status: "draft",
   })
 
   useEffect(() => {
@@ -169,7 +169,8 @@ export default function NewServicePage() {
         effective_to: formData.effective_to || null,
         notes: formData.notes.trim() || null,
         tags: tags.length > 0 ? tags : null,
-        is_active: formData.is_active,
+        status: formData.status,
+        is_active: false, // Always false for new services (they start as draft)
         created_by: user?.id || null,
         updated_by: user?.id || null,
       }
@@ -499,13 +500,14 @@ export default function NewServicePage() {
                   <Label htmlFor="requires_approval">Requires Approval</Label>
                 </div>
 
-                <div className="flex items-center space-x-2">
-                  <Switch
-                    id="is_active"
-                    checked={formData.is_active}
-                    onCheckedChange={(checked) => handleInputChange("is_active", checked)}
-                  />
-                  <Label htmlFor="is_active">Active Service</Label>
+                <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                  <div className="flex items-center gap-2 text-blue-800">
+                    <Badge className="bg-gray-100 text-gray-800">Draft</Badge>
+                    <span className="text-sm">New services are created in Draft status</span>
+                  </div>
+                  <p className="text-xs text-blue-600 mt-1">
+                    You can activate the service after creation to make it available for service agreements.
+                  </p>
                 </div>
               </div>
             </CardContent>

@@ -49,6 +49,7 @@ interface Service {
   unit: string
   category?: string
   subcategory?: string
+  status: 'draft' | 'active' | 'inactive' | 'archived'
   is_active: boolean
   allow_discount: boolean
   can_be_cancelled: boolean
@@ -68,7 +69,9 @@ export default function ServicesPage() {
   const [loading, setLoading] = useState(true)
   const [searchTerm, setSearchTerm] = useState("")
   const [categoryFilter, setCategoryFilter] = useState("all")
+  const [statusFilter, setStatusFilter] = useState("all")
   const [organizationId, setOrganizationId] = useState<string | null>(null)
+  const [activating, setActivating] = useState<string | null>(null)
 
   useEffect(() => {
     initializeAndFetchServices()
@@ -122,11 +125,21 @@ export default function ServicesPage() {
     }
   }
 
-  const getServiceStatusBadge = (service: Service) => {
-    if (!service.is_active) {
-      return <Badge variant="secondary">Inactive</Badge>
+  const getServiceStatusBadge = (service: Service, isPrimary: boolean = false) => {
+    if (isPrimary) {
+      // Primary status badge
+      const statusVariants = {
+        draft: { class: "bg-gray-100 text-gray-800", label: "Draft" },
+        active: { class: "bg-green-100 text-green-800", label: "Active" },
+        inactive: { class: "bg-red-100 text-red-800", label: "Inactive" },
+        archived: { class: "bg-gray-100 text-gray-600", label: "Archived" }
+      }
+      
+      const variant = statusVariants[service.status] || statusVariants.draft
+      return <Badge className={variant.class}>{variant.label}</Badge>
     }
     
+    // Secondary badges for other attributes
     const badges = []
     
     if (service.has_variable_pricing) {
@@ -141,7 +154,35 @@ export default function ServicesPage() {
       badges.push(<Badge key="no-discount" variant="outline" className="bg-red-50 text-red-700">No Discount</Badge>)
     }
 
-    return badges.length > 0 ? badges : <Badge className="bg-green-100 text-green-800">Active</Badge>
+    return badges
+  }
+
+  const handleStatusTransition = async (serviceId: string, newStatus: string) => {
+    setActivating(serviceId)
+    try {
+      const { data, error } = await supabase.rpc('transition_service_status', {
+        service_id: serviceId,
+        new_status: newStatus
+      })
+
+      if (error || !data?.success) {
+        throw new Error(data?.error || error?.message || 'Status transition failed')
+      }
+
+      // Update local state
+      setServices(services.map(service => 
+        service.id === serviceId 
+          ? { ...service, status: newStatus as any, is_active: newStatus === 'active' }
+          : service
+      ))
+
+      alert(`✅ Service status updated to ${newStatus}!`)
+    } catch (error: any) {
+      console.error('Error updating service status:', error)
+      alert(`Failed to update status: ${error.message}`)
+    } finally {
+      setActivating(null)
+    }
   }
 
   const getUnitDisplay = (unit: string) => {
@@ -179,11 +220,19 @@ export default function ServicesPage() {
       service.category?.toLowerCase().includes(searchTerm.toLowerCase())
 
     const matchesCategory = categoryFilter === "all" || service.category === categoryFilter
+    const matchesStatus = statusFilter === "all" || service.status === statusFilter
 
-    return matchesSearch && matchesCategory
+    return matchesSearch && matchesCategory && matchesStatus
   })
 
   const uniqueCategories = Array.from(new Set(services.map(s => s.category).filter(Boolean)))
+  const statusCounts = {
+    all: services.length,
+    draft: services.filter(s => s.status === 'draft').length,
+    active: services.filter(s => s.status === 'active').length,
+    inactive: services.filter(s => s.status === 'inactive').length,
+    archived: services.filter(s => s.status === 'archived').length,
+  }
 
   if (loading) {
     return (
@@ -259,8 +308,11 @@ export default function ServicesPage() {
               <Wrench className="w-4 h-4 text-green-500" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">
-                {services.filter(s => s.is_active).length}
+              <div className="text-2xl font-bold text-green-600">
+                {statusCounts.active}
+              </div>
+              <div className="text-xs text-gray-500 mt-1">
+                {statusCounts.draft} in draft
               </div>
             </CardContent>
           </Card>
@@ -314,6 +366,17 @@ export default function ServicesPage() {
                 {uniqueCategories.map((category) => (
                   <option key={category} value={category}>{category}</option>
                 ))}
+              </select>
+              <select
+                value={statusFilter}
+                onChange={(e) => setStatusFilter(e.target.value)}
+                className="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+              >
+                <option value="all">All Status ({statusCounts.all})</option>
+                <option value="draft">Draft ({statusCounts.draft})</option>
+                <option value="active">Active ({statusCounts.active})</option>
+                <option value="inactive">Inactive ({statusCounts.inactive})</option>
+                <option value="archived">Archived ({statusCounts.archived})</option>
               </select>
             </div>
           </CardContent>
@@ -395,8 +458,11 @@ export default function ServicesPage() {
                         </TableCell>
 
                         <TableCell>
-                          <div className="flex flex-wrap gap-1">
-                            {getServiceStatusBadge(service)}
+                          <div className="flex flex-col gap-1">
+                            {getServiceStatusBadge(service, true)}
+                            <div className="flex flex-wrap gap-1">
+                              {getServiceStatusBadge(service, false)}
+                            </div>
                           </div>
                         </TableCell>
 
@@ -429,10 +495,76 @@ export default function ServicesPage() {
                                 </Link>
                               </DropdownMenuItem>
                               <DropdownMenuSeparator />
-                              <DropdownMenuItem className="text-red-600 focus:text-red-600">
-                                <Trash2 className="w-4 h-4 mr-2" />
-                                Delete Service
-                              </DropdownMenuItem>
+                              
+                              {/* Status Transitions */}
+                              {service.status === 'draft' && (
+                                <DropdownMenuItem 
+                                  onClick={() => handleStatusTransition(service.id, 'active')}
+                                  disabled={activating === service.id}
+                                  className="text-green-600 focus:text-green-600"
+                                >
+                                  {activating === service.id ? (
+                                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                                  ) : (
+                                    <Eye className="w-4 h-4 mr-2" />
+                                  )}
+                                  Activate Service
+                                </DropdownMenuItem>
+                              )}
+                              
+                              {service.status === 'active' && (
+                                <DropdownMenuItem 
+                                  onClick={() => handleStatusTransition(service.id, 'inactive')}
+                                  disabled={activating === service.id}
+                                  className="text-orange-600 focus:text-orange-600"
+                                >
+                                  {activating === service.id ? (
+                                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                                  ) : (
+                                    <Eye className="w-4 h-4 mr-2" />
+                                  )}
+                                  Deactivate Service
+                                </DropdownMenuItem>
+                              )}
+                              
+                              {service.status === 'inactive' && (
+                                <>
+                                  <DropdownMenuItem 
+                                    onClick={() => handleStatusTransition(service.id, 'active')}
+                                    disabled={activating === service.id}
+                                    className="text-green-600 focus:text-green-600"
+                                  >
+                                    {activating === service.id ? (
+                                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                                    ) : (
+                                      <Eye className="w-4 h-4 mr-2" />
+                                    )}
+                                    Reactivate Service
+                                  </DropdownMenuItem>
+                                  <DropdownMenuItem 
+                                    onClick={() => handleStatusTransition(service.id, 'archived')}
+                                    disabled={activating === service.id}
+                                    className="text-gray-600 focus:text-gray-600"
+                                  >
+                                    {activating === service.id ? (
+                                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                                    ) : (
+                                      <Eye className="w-4 h-4 mr-2" />
+                                    )}
+                                    Archive Service
+                                  </DropdownMenuItem>
+                                </>
+                              )}
+                              
+                              {service.status !== 'archived' && (
+                                <>
+                                  <DropdownMenuSeparator />
+                                  <DropdownMenuItem className="text-red-600 focus:text-red-600">
+                                    <Trash2 className="w-4 h-4 mr-2" />
+                                    Delete Service
+                                  </DropdownMenuItem>
+                                </>
+                              )}
                             </DropdownMenuContent>
                           </DropdownMenu>
                         </TableCell>
