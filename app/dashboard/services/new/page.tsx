@@ -147,6 +147,16 @@ export default function NewServicePage() {
       // Get current user for audit fields
       const { data: { user } } = await supabase.auth.getUser()
       
+      // First, let's check if the services table exists by trying a simple query
+      const { error: tableCheckError } = await supabase
+        .from("services")
+        .select("id")
+        .limit(1)
+
+      if (tableCheckError) {
+        throw new Error(`Services table not found or not accessible: ${tableCheckError.message}. Please run the database migration scripts first.`)
+      }
+
       const serviceData = {
         organization_id: organizationId,
         name: formData.name.trim(),
@@ -163,17 +173,19 @@ export default function NewServicePage() {
         is_taxable: formData.is_taxable,
         tax_rate: formData.is_taxable ? parseFloat(formData.tax_rate) : null,
         has_variable_pricing: formData.has_variable_pricing,
-        min_cost: formData.has_variable_pricing ? parseFloat(formData.min_cost) : null,
-        max_cost: formData.has_variable_pricing ? parseFloat(formData.max_cost) : null,
+        min_cost: formData.has_variable_pricing && formData.min_cost ? parseFloat(formData.min_cost) : null,
+        max_cost: formData.has_variable_pricing && formData.max_cost ? parseFloat(formData.max_cost) : null,
         effective_from: formData.effective_from || null,
         effective_to: formData.effective_to || null,
         notes: formData.notes.trim() || null,
         tags: tags.length > 0 ? tags : null,
-        status: formData.status,
+        status: "draft", // Hardcode to draft for now
         is_active: false, // Always false for new services (they start as draft)
         created_by: user?.id || null,
         updated_by: user?.id || null,
       }
+
+      console.log("Attempting to create service with data:", serviceData)
 
       const { data, error } = await supabase
         .from("services")
@@ -181,9 +193,14 @@ export default function NewServicePage() {
         .select()
         .single()
 
-      if (error) throw error
+      console.log("Supabase response - data:", data, "error:", error)
 
-      console.log("Service created:", data)
+      if (error) {
+        console.error("Detailed Supabase error:", error)
+        throw new Error(`Database error: ${error.message || JSON.stringify(error)}`)
+      }
+
+      console.log("Service created successfully:", data)
       
       // Show success message and redirect
       alert(`✅ Service "${formData.name}" created successfully!`)

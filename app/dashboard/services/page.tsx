@@ -114,6 +114,12 @@ export default function ServicesPage() {
 
       if (error) {
         console.error("Error fetching services:", error)
+        
+        // Check if it's a table not found error
+        if (error.message?.includes('relation "services" does not exist')) {
+          console.error("Services table does not exist. Please run the database migration scripts.")
+        }
+        
         return
       }
 
