@@ -156,22 +156,29 @@ export function DashboardHeader() {
       current: pathname.startsWith("/dashboard/clients"),
     },
     {
+      name: "Contracts",
+      href: "/dashboard/contracts",
+      icon: Briefcase,
+      current: pathname.startsWith("/dashboard/contracts"),
+    },
+    {
       name: "Transactions",
       href: "/dashboard/transactions",
       icon: CreditCard,
       current: pathname.startsWith("/dashboard/transactions"),
     },
     {
-      name: "Buckets",
-      href: "/dashboard/buckets",
-      icon: Briefcase,
-      current: pathname.startsWith("/dashboard/buckets"),
-    },
-    {
       name: "Analytics",
       href: "/dashboard/bucket-analytics",
       icon: BarChart3,
       current: pathname.startsWith("/dashboard/bucket-analytics"),
+    },
+    // Add Config navigation item
+    {
+      name: "Config",
+      href: "/dashboard/config",
+      icon: Settings,
+      current: pathname.startsWith("/dashboard/config"),
     },
   ]
 

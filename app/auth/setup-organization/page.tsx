@@ -33,7 +33,7 @@ export default function SetupOrganizationPage() {
       // Check if organization already exists
       const { data: existingProfile } = await supabase.from("profiles").select("*").eq("id", user.id).single()
 
-      if (existingProfile) {
+      if (existingProfile && existingProfile.organization_id) {
         console.log("Organization already exists, redirecting to dashboard")
         router.push("/dashboard")
         return
@@ -42,8 +42,11 @@ export default function SetupOrganizationPage() {
       // Get pending organization data from localStorage
       const pendingOrgData = localStorage.getItem("pendingOrganization")
       if (!pendingOrgData) {
-        console.log("No pending organization data, redirecting to signup")
-        router.push("/auth/signup")
+        console.log("No pending organization data - user needs to complete signup manually")
+        
+        // For users who signed in without completing setup, redirect to manual completion
+        console.log("Redirecting to complete setup page")
+        router.push("/auth/complete-setup")
         return
       }
 
@@ -52,7 +55,17 @@ export default function SetupOrganizationPage() {
 
       setStatus("creating")
 
-      // Create organization manually using our database function
+      // Create organization using database function with fallback
+      console.log("RPC parameters:", {
+        user_id: user.id,
+        user_email: orgData.email,
+        full_name: orgData.fullName,
+        organization_name: orgData.organizationName,
+        abn: orgData.abn,
+        phone: orgData.phone,
+        plan: orgData.plan,
+      })
+
       const { data: orgId, error: orgError } = await supabase.rpc("create_organization_and_admin", {
         user_id: user.id,
         user_email: orgData.email,
@@ -63,9 +76,18 @@ export default function SetupOrganizationPage() {
         plan: orgData.plan,
       })
 
+      console.log("RPC result:", { data: orgId, error: orgError })
+
       if (orgError) {
         console.error("Organization creation error:", orgError)
-        setError(`Failed to create organization: ${orgError.message}`)
+        setError(`Failed to create organization: ${orgError.message || 'Database function error'}`)
+        setStatus("error")
+        return
+      }
+
+      if (!orgId) {
+        console.error("No organization ID returned from function")
+        setError("Organization creation failed - no ID returned")
         setStatus("error")
         return
       }

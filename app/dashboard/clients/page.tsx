@@ -31,6 +31,7 @@ import {
   Sparkles,
 } from "lucide-react"
 import { supabase } from "@/lib/supabase"
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 
 interface Client {
   id: string
@@ -43,6 +44,7 @@ interface Client {
   funding_type: string
   sah_classification_level: number
   plan_budget: number
+  avatar_url?: string
   created_at: string
 }
 
@@ -51,14 +53,46 @@ export default function ClientsPage() {
   const [loading, setLoading] = useState(true)
   const [searchTerm, setSearchTerm] = useState("")
   const [converting, setConverting] = useState<string | null>(null)
+  const [organizationId, setOrganizationId] = useState<string | null>(null)
 
   useEffect(() => {
-    fetchClients()
+    initializeAndFetchClients()
   }, [])
 
-  const fetchClients = async () => {
+  const initializeAndFetchClients = async () => {
     try {
-      const { data, error } = await supabase.from("clients").select("*").order("created_at", { ascending: false })
+      // Get current user and their organization
+      const { data: { user }, error: userError } = await supabase.auth.getUser()
+      if (userError || !user) {
+        console.error("User not authenticated:", userError)
+        return
+      }
+
+      const { data: profile, error: profileError } = await supabase
+        .from("profiles")
+        .select("organization_id")
+        .eq("id", user.id)
+        .single()
+
+      if (profileError || !profile?.organization_id) {
+        console.error("Could not determine user organization:", profileError)
+        return
+      }
+
+      setOrganizationId(profile.organization_id)
+      await fetchClients(profile.organization_id)
+    } catch (error) {
+      console.error("Error initializing:", error)
+    }
+  }
+
+  const fetchClients = async (orgId: string) => {
+    try {
+      const { data, error } = await supabase
+        .from("clients")
+        .select("*")
+        .eq("organization_id", orgId)
+        .order("created_at", { ascending: false })
 
       if (error) {
         console.error("Error fetching clients:", error)
@@ -87,7 +121,7 @@ export default function ClientsPage() {
       // Update local state
       setClients(clients.map((client) => (client.id === clientId ? { ...client, status: "active" as const } : client)))
 
-      alert(`🎉 ${clientName} is now an active client!\n\nFunding buckets have been automatically created.`)
+      alert(`🎉 ${clientName} is now an active client!`)
     } catch (error) {
       console.error("Error converting client:", error)
       alert("Failed to convert client. Please try again.")
@@ -307,15 +341,25 @@ export default function ClientsPage() {
                           href={`/dashboard/clients/${client.id}`}
                           className="block hover:text-blue-600 transition-colors"
                         >
-                          <div className="font-medium text-gray-900 hover:underline">
-                            {client.first_name} {client.last_name}
-                          </div>
-                          {client.address && (
-                            <div className="flex items-center text-sm text-gray-500 mt-1">
-                              <MapPin className="w-3 h-3 mr-1" />
-                              {client.address.length > 30 ? `${client.address.substring(0, 30)}...` : client.address}
+                          <div className="flex items-center gap-3">
+                            <Avatar className="w-10 h-10">
+                              <AvatarImage src={client.avatar_url || undefined} />
+                              <AvatarFallback className="bg-blue-100 text-blue-600 font-medium">
+                                {client.first_name.charAt(0)}{client.last_name.charAt(0)}
+                              </AvatarFallback>
+                            </Avatar>
+                            <div>
+                              <div className="font-medium text-gray-900 hover:underline">
+                                {client.first_name} {client.last_name}
+                              </div>
+                              {client.address && (
+                                <div className="flex items-center text-sm text-gray-500 mt-1">
+                                  <MapPin className="w-3 h-3 mr-1" />
+                                  {client.address.length > 30 ? `${client.address.substring(0, 30)}...` : client.address}
+                                </div>
+                              )}
                             </div>
-                          )}
+                          </div>
                         </Link>
                       </TableCell>
                       <TableCell>

@@ -10,18 +10,21 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { ArrowLeft, Loader2 } from "lucide-react"
-import { supabase } from "@/lib/supabase"
+import { supabase, getAuthCallbackUrl } from "@/lib/supabase"
 
 export default function SignInPage() {
   const router = useRouter()
   const [isLoading, setIsLoading] = useState(false)
+  const [isResending, setIsResending] = useState(false)
   const [error, setError] = useState("")
+  const [message, setMessage] = useState("")
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
 
   const handleSignIn = async (e: React.FormEvent) => {
     e.preventDefault()
     setError("")
+    setMessage("")
     setIsLoading(true)
 
     try {
@@ -31,6 +34,11 @@ export default function SignInPage() {
       })
 
       if (signInError) {
+        // If email not confirmed, show resend option
+        if (signInError.message.includes("email not confirmed") || signInError.message.includes("Email not confirmed")) {
+          setError("Please check your email and click the confirmation link to verify your account.")
+          return
+        }
         throw signInError
       }
 
@@ -42,6 +50,38 @@ export default function SignInPage() {
       setError(err.message || "An error occurred during sign in")
     } finally {
       setIsLoading(false)
+    }
+  }
+
+  const handleResendConfirmation = async () => {
+    if (!email.trim()) {
+      setError("Please enter your email address first")
+      return
+    }
+
+    setIsResending(true)
+    setError("")
+    setMessage("")
+
+    try {
+      const { error } = await supabase.auth.resend({
+        type: 'signup',
+        email: email.trim(),
+        options: {
+          emailRedirectTo: getAuthCallbackUrl()
+        }
+      })
+
+      if (error) {
+        throw error
+      }
+
+      setMessage("Confirmation email sent! Please check your inbox and spam folder.")
+    } catch (err: any) {
+      console.error("Resend error:", err)
+      setError(err.message || "Failed to resend confirmation email")
+    } finally {
+      setIsResending(false)
     }
   }
 
@@ -97,6 +137,21 @@ export default function SignInPage() {
               {error && (
                 <div className="bg-red-50 border border-red-200 rounded-lg p-3">
                   <p className="text-red-600 text-sm">{error}</p>
+                  {(error.includes("confirmation") || error.includes("verify")) && (
+                    <button
+                      onClick={handleResendConfirmation}
+                      disabled={isResending}
+                      className="mt-2 text-blue-600 hover:text-blue-800 text-sm underline disabled:opacity-50"
+                    >
+                      {isResending ? "Sending..." : "Resend confirmation email"}
+                    </button>
+                  )}
+                </div>
+              )}
+
+              {message && (
+                <div className="bg-green-50 border border-green-200 rounded-lg p-3">
+                  <p className="text-green-600 text-sm">{message}</p>
                 </div>
               )}
 
@@ -121,10 +176,18 @@ export default function SignInPage() {
               </p>
             </div>
 
-            <div className="text-center mt-4">
-              <Link href="/auth/forgot-password" className="text-sm text-blue-600 hover:underline">
+            <div className="text-center mt-4 space-y-2">
+              <Link href="/auth/forgot-password" className="text-sm text-blue-600 hover:underline block">
                 Forgot your password?
               </Link>
+              
+              <button
+                onClick={handleResendConfirmation}
+                disabled={isResending || !email.trim()}
+                className="text-sm text-blue-600 hover:text-blue-800 underline disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {isResending ? "Sending..." : "Resend confirmation email"}
+              </button>
             </div>
           </CardContent>
         </Card>

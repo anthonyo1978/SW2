@@ -10,7 +10,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { ArrowLeft, Building2, User, Loader2 } from "lucide-react"
-import { supabase } from "@/lib/supabase"
+import { supabase, getAuthCallbackUrl } from "@/lib/supabase"
 
 export default function OrganizationSignupPage() {
   const router = useRouter()
@@ -55,7 +55,7 @@ export default function OrganizationSignupPage() {
         email: email.trim(),
         password,
         options: {
-          emailRedirectTo: `${window.location.origin}/auth/callback`,
+          emailRedirectTo: getAuthCallbackUrl(),
         },
       })
 
@@ -65,6 +65,8 @@ export default function OrganizationSignupPage() {
         console.error("Auth signup error:", signUpError)
         if (signUpError.message.includes("User already registered")) {
           setError("An account with this email already exists. Please sign in instead.")
+        } else if (signUpError.message.includes("email_address_invalid")) {
+          setError("Please use a valid email address (avoid example.com, test.com, etc.)")
         } else {
           setError(signUpError.message || "An error occurred during signup")
         }
@@ -74,6 +76,14 @@ export default function OrganizationSignupPage() {
 
       if (authData.user) {
         console.log("User created successfully:", authData.user.id)
+        
+        // Check if confirmation email was sent
+        if (authData.user.email_confirmed_at) {
+          console.log("Email was automatically confirmed")
+        } else {
+          console.log("Confirmation email should have been sent to:", email)
+          console.log("Email confirmation status:", authData.user.email_confirmed_at)
+        }
 
         // Step 2: Store organization details for later creation
         // We'll create the organization after email verification

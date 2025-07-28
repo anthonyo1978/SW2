@@ -1,6 +1,5 @@
 "use client"
-
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { useRouter } from "next/navigation"
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
@@ -11,11 +10,15 @@ import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { ArrowLeft, User, Save, Loader2 } from "lucide-react"
 import { supabase } from "@/lib/supabase"
+import { DatePicker } from "@/components/ui/date-picker"
+import { AvatarSelector } from "@/components/ui/avatar-selector"
 
 export default function NewClientPage() {
   const router = useRouter()
   const [loading, setLoading] = useState(false)
-  const [formData, setFormData] = useState({
+  const [avatarUrl, setAvatarUrl] = useState<string | null>(null)
+  const [dateOfBirth, setDateOfBirth] = useState<Date | undefined>(undefined)
+  const [formData, setFormData] = useState<{ [key: string]: string }>({
     // Personal Information
     first_name: "",
     last_name: "",
@@ -121,7 +124,7 @@ export default function NewClientPage() {
           organization_id: profile.organization_id,
           first_name: formData.first_name.trim(),
           last_name: formData.last_name.trim(),
-          date_of_birth: formData.date_of_birth || null,
+          date_of_birth: dateOfBirth ? dateOfBirth.toISOString().split('T')[0] : null,
           phone: formData.phone || null,
           address: formData.address || null,
           emergency_contact_name: formData.emergency_contact_name || null,
@@ -140,6 +143,7 @@ export default function NewClientPage() {
           medicare_number: formData.medicare_number || null,
           pension_type: formData.pension_type || null,
           myagedcare_number: formData.myagedcare_number || null,
+          avatar_url: avatarUrl,
           status: "prospect",
         })
         .select()
@@ -156,6 +160,76 @@ export default function NewClientPage() {
       setLoading(false)
     }
   }
+
+  const [formConfig, setFormConfig] = useState<any[]>([]);
+  const [configLoading, setConfigLoading] = useState(true);
+
+  // Default form configuration as fallback
+  const defaultFormConfig = [
+    {
+      "section": "Personal Information",
+      "enabled": true,
+      "fields": [
+        { "name": "first_name", "label": "First Name", "type": "text", "required": true },
+        { "name": "last_name", "label": "Last Name", "type": "text", "required": true },
+        { "name": "date_of_birth", "label": "Date of Birth", "type": "text" },
+        { "name": "phone", "label": "Phone Number", "type": "text" },
+        { "name": "address", "label": "Address", "type": "textarea" },
+        { "name": "emergency_contact_name", "label": "Emergency Contact Name", "type": "text" },
+        { "name": "emergency_contact_phone", "label": "Emergency Contact Phone", "type": "text" }
+      ]
+    },
+    {
+      "section": "Health & Support Information",
+      "enabled": true,
+      "fields": [
+        { "name": "medical_conditions", "label": "Medical Conditions", "type": "textarea" },
+        { "name": "medications", "label": "Medications", "type": "textarea" },
+        { "name": "support_goals", "label": "Support Goals", "type": "textarea" }
+      ]
+    },
+    {
+      "section": "Funding Information",
+      "enabled": true,
+      "fields": [
+        { "name": "funding_type", "label": "Funding Type", "type": "select", "options": ["NDIS", "Private", "Home Care Package", "Commonwealth Home Support Programme"] },
+        { "name": "sah_classification_level", "label": "S@H Classification Level", "type": "select", "options": ["1", "2", "3", "4", "5", "6", "7", "8"] },
+        { "name": "plan_budget", "label": "Plan Budget (AUD)", "type": "text" },
+        { "name": "plan_start_date", "label": "Plan Start Date", "type": "text" },
+        { "name": "plan_end_date", "label": "Plan End Date", "type": "text" }
+      ]
+    },
+    {
+      "section": "Support at Home Details",
+      "enabled": true,
+      "fields": [
+        { "name": "sah_number", "label": "S@H Number", "type": "text" },
+        { "name": "medicare_number", "label": "Medicare Number", "type": "text" },
+        { "name": "pension_type", "label": "Pension Type", "type": "select", "options": ["Age Pension", "Disability Support Pension", "Carer Payment", "None"] },
+        { "name": "myagedcare_number", "label": "My Aged Care Number", "type": "text" }
+      ]
+    }
+  ];
+
+  useEffect(() => {
+    fetch('/api/form-config')
+      .then(res => res.json())
+      .then(data => {
+        console.log("Form config API response:", data);
+        if (Array.isArray(data) && data.length > 0) {
+          setFormConfig(data);
+        } else {
+          console.log("Using default form configuration");
+          setFormConfig(defaultFormConfig);
+        }
+        setConfigLoading(false);
+      })
+      .catch(error => {
+        console.error("Error loading form config, using default:", error);
+        setFormConfig(defaultFormConfig);
+        setConfigLoading(false);
+      });
+  }, []);
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -177,287 +251,93 @@ export default function NewClientPage() {
           </div>
         </div>
 
-        <div className="space-y-8">
-          {/* Personal Information */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <User className="w-5 h-5 text-blue-600" />
-                Personal Information
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-6">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div>
-                  <Label htmlFor="first_name">First Name *</Label>
-                  <Input
-                    id="first_name"
-                    value={formData.first_name}
-                    onChange={(e) => handleInputChange("first_name", e.target.value)}
-                    placeholder="Enter first name"
-                  />
-                </div>
-
-                <div>
-                  <Label htmlFor="last_name">Last Name *</Label>
-                  <Input
-                    id="last_name"
-                    value={formData.last_name}
-                    onChange={(e) => handleInputChange("last_name", e.target.value)}
-                    placeholder="Enter last name"
-                  />
-                </div>
-
-                <div>
-                  <Label htmlFor="date_of_birth">Date of Birth</Label>
-                  <Input
-                    id="date_of_birth"
-                    type="date"
-                    value={formData.date_of_birth}
-                    onChange={(e) => handleInputChange("date_of_birth", e.target.value)}
-                  />
-                </div>
-
-                <div>
-                  <Label htmlFor="phone">Phone Number</Label>
-                  <Input
-                    id="phone"
-                    value={formData.phone}
-                    onChange={(e) => handleInputChange("phone", e.target.value)}
-                    placeholder="0412 345 678"
-                  />
-                  <p className="text-xs text-gray-500 mt-1">Australian format: 04XX XXX XXX or +61 4XX XXX XXX</p>
-                </div>
-
-                <div className="md:col-span-2">
-                  <Label htmlFor="address">Address</Label>
-                  <Input
-                    id="address"
-                    value={formData.address}
-                    onChange={(e) => handleInputChange("address", e.target.value)}
-                    placeholder="Enter full address"
-                  />
-                </div>
-
-                <div>
-                  <Label htmlFor="emergency_contact_name">Emergency Contact Name</Label>
-                  <Input
-                    id="emergency_contact_name"
-                    value={formData.emergency_contact_name}
-                    onChange={(e) => handleInputChange("emergency_contact_name", e.target.value)}
-                    placeholder="Contact person name"
-                  />
-                </div>
-
-                <div>
-                  <Label htmlFor="emergency_contact_phone">Emergency Contact Phone</Label>
-                  <Input
-                    id="emergency_contact_phone"
-                    value={formData.emergency_contact_phone}
-                    onChange={(e) => handleInputChange("emergency_contact_phone", e.target.value)}
-                    placeholder="0412 345 678"
-                  />
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Health & Support Information */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Health & Support Information</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-6">
-              <div>
-                <Label htmlFor="medical_conditions">Medical Conditions</Label>
-                <Textarea
-                  id="medical_conditions"
-                  value={formData.medical_conditions}
-                  onChange={(e) => handleInputChange("medical_conditions", e.target.value)}
-                  placeholder="List medical conditions (one per line)"
-                  rows={4}
+        {configLoading ? (
+          <div className="text-gray-500">Loading form configuration...</div>
+        ) : (
+          <div className="space-y-8">
+            {/* Profile Picture Section */}
+            <Card>
+              <CardHeader>
+                <CardTitle>Profile Picture</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <AvatarSelector
+                  currentAvatar={avatarUrl}
+                  onAvatarChange={setAvatarUrl}
                 />
-                <p className="text-xs text-gray-500 mt-1">Enter each condition on a new line</p>
-              </div>
+              </CardContent>
+            </Card>
 
-              <div>
-                <Label htmlFor="medications">Current Medications</Label>
-                <Textarea
-                  id="medications"
-                  value={formData.medications}
-                  onChange={(e) => handleInputChange("medications", e.target.value)}
-                  placeholder="List current medications (one per line)"
-                  rows={4}
-                />
-                <p className="text-xs text-gray-500 mt-1">Enter each medication on a new line</p>
-              </div>
-
-              <div>
-                <Label htmlFor="support_goals">Support Goals</Label>
-                <Textarea
-                  id="support_goals"
-                  value={formData.support_goals}
-                  onChange={(e) => handleInputChange("support_goals", e.target.value)}
-                  placeholder="List support goals and objectives (one per line)"
-                  rows={4}
-                />
-                <p className="text-xs text-gray-500 mt-1">Enter each goal on a new line</p>
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Funding Information */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Funding Information</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-6">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div>
-                  <Label htmlFor="funding_type">Funding Type</Label>
-                  <Select
-                    value={formData.funding_type}
-                    onValueChange={(value) => handleInputChange("funding_type", value)}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select funding type" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="sah">Support at Home (S@H)</SelectItem>
-                      <SelectItem value="private">Private</SelectItem>
-                      <SelectItem value="aged_care">Aged Care</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <div>
-                  <Label htmlFor="sah_classification_level">S@H Classification Level</Label>
-                  <Select
-                    value={formData.sah_classification_level}
-                    onValueChange={(value) => handleInputChange("sah_classification_level", value)}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select level" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="1">Level 1 ($9,000)</SelectItem>
-                      <SelectItem value="2">Level 2 ($15,600)</SelectItem>
-                      <SelectItem value="3">Level 3 ($33,800)</SelectItem>
-                      <SelectItem value="4">Level 4 ($52,000)</SelectItem>
-                      <SelectItem value="5">Level 5 ($60,840)</SelectItem>
-                      <SelectItem value="6">Level 6 ($63,648)</SelectItem>
-                      <SelectItem value="7">Level 7 ($66,456)</SelectItem>
-                      <SelectItem value="8">Level 8 ($69,264)</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <div>
-                  <Label htmlFor="plan_budget">Plan Budget (AUD)</Label>
-                  <Input
-                    id="plan_budget"
-                    type="number"
-                    step="0.01"
-                    value={formData.plan_budget}
-                    onChange={(e) => handleInputChange("plan_budget", e.target.value)}
-                    placeholder="0.00"
-                  />
-                  <p className="text-xs text-gray-500 mt-1">Auto-calculated based on S@H level</p>
-                </div>
-
-                <div>
-                  <Label htmlFor="pension_type">Pension Type</Label>
-                  <Select
-                    value={formData.pension_type}
-                    onValueChange={(value) => handleInputChange("pension_type", value)}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select pension type" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="age_pension">Age Pension</SelectItem>
-                      <SelectItem value="disability_pension">Disability Support Pension</SelectItem>
-                      <SelectItem value="carer_pension">Carer Pension</SelectItem>
-                      <SelectItem value="veteran_pension">Veteran Pension</SelectItem>
-                      <SelectItem value="none">No Pension</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <div>
-                  <Label htmlFor="plan_start_date">Plan Start Date</Label>
-                  <Input
-                    id="plan_start_date"
-                    type="date"
-                    value={formData.plan_start_date}
-                    onChange={(e) => handleInputChange("plan_start_date", e.target.value)}
-                  />
-                </div>
-
-                <div>
-                  <Label htmlFor="plan_end_date">Plan End Date</Label>
-                  <Input
-                    id="plan_end_date"
-                    type="date"
-                    value={formData.plan_end_date}
-                    onChange={(e) => handleInputChange("plan_end_date", e.target.value)}
-                  />
-                </div>
-
-                <div>
-                  <Label htmlFor="sah_number">S@H Number</Label>
-                  <Input
-                    id="sah_number"
-                    value={formData.sah_number}
-                    onChange={(e) => handleInputChange("sah_number", e.target.value)}
-                    placeholder="Support at Home number"
-                  />
-                </div>
-
-                <div>
-                  <Label htmlFor="medicare_number">Medicare Number</Label>
-                  <Input
-                    id="medicare_number"
-                    value={formData.medicare_number}
-                    onChange={(e) => handleInputChange("medicare_number", e.target.value)}
-                    placeholder="Medicare card number"
-                  />
-                </div>
-
-                <div>
-                  <Label htmlFor="myagedcare_number">My Aged Care Number</Label>
-                  <Input
-                    id="myagedcare_number"
-                    value={formData.myagedcare_number}
-                    onChange={(e) => handleInputChange("myagedcare_number", e.target.value)}
-                    placeholder="My Aged Care reference number"
-                  />
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Actions */}
-          <div className="flex justify-end gap-4">
-            <Button variant="outline" asChild>
-              <Link href="/dashboard/clients">Cancel</Link>
-            </Button>
-            <Button onClick={createClient} disabled={loading || !formData.first_name || !formData.last_name}>
-              {loading ? (
-                <>
-                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                  Creating...
-                </>
-              ) : (
-                <>
-                  <Save className="w-4 h-4 mr-2" />
-                  Create Client
-                </>
-              )}
+            {formConfig
+              .filter((section: any) => section.enabled)
+              .map((section: any) => (
+                <Card key={section.section}>
+                  <CardHeader>
+                    <CardTitle>{section.section}</CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-6">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                      {section.fields
+                        .filter((field: any) => !('enabled' in field) || field.enabled)
+                        .map((field: any) => (
+                          <div key={field.name}>
+                            <Label htmlFor={field.name}>
+                              {field.label}
+                              {"required" in field && field.required && " *"}
+                            </Label>
+                            {field.name === "date_of_birth" ? (
+                              <div className="mt-1">
+                                <DatePicker
+                                  date={dateOfBirth}
+                                  onSelect={setDateOfBirth}
+                                  placeholder="Select date of birth"
+                                />
+                              </div>
+                            ) : field.type === "text" ? (
+                              <Input
+                                id={field.name}
+                                value={formData[field.name] || ""}
+                                onChange={e => handleInputChange(field.name, e.target.value)}
+                                required={"required" in field ? field.required : false}
+                                placeholder={`Enter ${field.label.toLowerCase()}`}
+                              />
+                            ) : field.type === "textarea" ? (
+                              <Textarea
+                                id={field.name}
+                                value={formData[field.name] || ""}
+                                onChange={e => handleInputChange(field.name, e.target.value)}
+                                placeholder={`Enter ${field.label.toLowerCase()}`}
+                              />
+                            ) : field.type === "select" && "options" in field && Array.isArray(field.options) ? (
+                              <Select
+                                value={formData[field.name] || ""}
+                                onValueChange={value => handleInputChange(field.name, value)}
+                              >
+                                <SelectTrigger>
+                                  <SelectValue placeholder={`Select ${field.label.toLowerCase()}`} />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {field.options.map((option: string) => (
+                                    <SelectItem key={option} value={option}>
+                                      {option}
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            ) : null}
+                          </div>
+                        ))}
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+            <Button onClick={createClient} disabled={loading} className="w-full">
+              {loading ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Save className="w-4 h-4 mr-2" />}
+              Create Client
             </Button>
           </div>
-        </div>
+        )}
       </div>
     </div>
-  )
+  );
 }

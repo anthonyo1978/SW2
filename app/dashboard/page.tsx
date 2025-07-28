@@ -57,6 +57,15 @@ export default function DashboardPage() {
 
       if (profileError || !profile) {
         console.error("Profile error:", profileError)
+        
+        // If user exists but no profile, they need to complete organization setup
+        if (profileError?.code === 'PGRST116' || !profile) {
+          console.log("User authenticated but no profile found - redirecting to setup")
+          router.push("/auth/setup-organization")
+          return
+        }
+        
+        // Other profile errors - redirect to signin
         router.push("/auth/signin")
         return
       }

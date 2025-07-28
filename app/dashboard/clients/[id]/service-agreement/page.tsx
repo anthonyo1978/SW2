@@ -81,10 +81,8 @@ interface ServiceAgreement {
   agreement_number: string
   start_date: string
   end_date: string
-  funding_model: "single_bucket" | "multi_bucket"
-  allocation_type: "sum_of_buckets" | "fixed_allocation"
+  funds_structure: "sum_of_buckets" | "fixed_allocation"
   allocated_amount?: number
-  primary_contact: string
   notes: string
   funding_buckets: FundingBucket[]
   status: "draft" | "current" | "expired"
@@ -136,10 +134,8 @@ export default function ServiceAgreementPage() {
     agreement_number: "",
     start_date: "",
     end_date: "",
-    funding_model: "single_bucket",
-    allocation_type: "sum_of_buckets",
+    funds_structure: "sum_of_buckets",
     allocated_amount: undefined,
-    primary_contact: "",
     notes: "",
     funding_buckets: [],
     status: "draft",
@@ -159,6 +155,11 @@ export default function ServiceAgreementPage() {
         error: userError,
       } = await supabase.auth.getUser()
       if (userError) throw userError
+
+      // Fix linter error: 'user' is possibly 'null'.
+      if (!user) {
+        throw new Error("User not authenticated")
+      }
 
       const { data: profile, error: profileError } = await supabase
         .from("profiles")
@@ -232,9 +233,14 @@ export default function ServiceAgreementPage() {
         client_name: `${clientData.first_name} ${clientData.last_name}`,
         agreement_number: `SA-${Date.now()}`,
       }))
-    } catch (error) {
-      console.error("Error loading data:", error)
-      alert(`Error loading data: ${error.message}`)
+    } catch (error: unknown) {
+      if (error instanceof Error) {
+        console.error("Error loading data:", error)
+        alert(`Error loading data: ${error.message}`)
+      } else {
+        console.error("Unknown error loading data:", error)
+        alert("Error loading data: Unknown error")
+      }
     } finally {
       setLoading(false)
     }
@@ -249,10 +255,8 @@ export default function ServiceAgreementPage() {
       agreement_number: agreement.agreement_number,
       start_date: agreement.start_date,
       end_date: agreement.end_date || "",
-      funding_model: agreement.funding_model || "single_bucket",
-      allocation_type: agreement.allocation_type || "sum_of_buckets",
+      funds_structure: agreement.allocation_type || "sum_of_buckets",
       allocated_amount: agreement.allocated_amount,
-      primary_contact: agreement.primary_contact || "",
       notes: agreement.notes || agreement.description || "",
       status: agreement.status,
       funding_buckets: agreement.agreement_buckets.map((bucket: any) => ({
@@ -285,9 +289,14 @@ export default function ServiceAgreementPage() {
       await loadData()
       setShowDeleteAgreementDialog(false)
       setAgreementToDelete(null)
-    } catch (error) {
-      console.error("Error deleting service agreement:", error)
-      alert("Failed to delete service agreement")
+    } catch (error: unknown) {
+      if (error instanceof Error) {
+        console.error("Error deleting service agreement:", error)
+        alert("Failed to delete service agreement")
+      } else {
+        console.error("Unknown error deleting service agreement:", error)
+        alert("Failed to delete service agreement: Unknown error")
+      }
     } finally {
       setSaving(false)
     }
@@ -338,7 +347,7 @@ export default function ServiceAgreementPage() {
   }
 
   const calculateTotalValue = () => {
-    if (serviceAgreement.allocation_type === "fixed_allocation") {
+    if (serviceAgreement.funds_structure === "fixed_allocation") {
       return serviceAgreement.allocated_amount || 0
     }
     return serviceAgreement.funding_buckets.reduce((sum, bucket) => sum + (bucket.custom_amount || 0), 0)
@@ -445,20 +454,12 @@ export default function ServiceAgreementPage() {
       // Now try to update with extended fields one by one (only if they have values)
       const extendedUpdates: any = {}
 
-      if (serviceAgreement.funding_model && serviceAgreement.funding_model !== "single_bucket") {
-        extendedUpdates.funding_model = serviceAgreement.funding_model
+      if (serviceAgreement.funds_structure && serviceAgreement.funds_structure !== "sum_of_buckets") {
+        extendedUpdates.funds_structure = serviceAgreement.funds_structure
       }
 
-      if (serviceAgreement.allocation_type && serviceAgreement.allocation_type !== "sum_of_buckets") {
-        extendedUpdates.allocation_type = serviceAgreement.allocation_type
-      }
-
-      if (serviceAgreement.allocation_type === "fixed_allocation" && serviceAgreement.allocated_amount) {
+      if (serviceAgreement.allocated_amount) {
         extendedUpdates.allocated_amount = serviceAgreement.allocated_amount
-      }
-
-      if (serviceAgreement.primary_contact && serviceAgreement.primary_contact.trim()) {
-        extendedUpdates.primary_contact = serviceAgreement.primary_contact.trim()
       }
 
       // Try to add notes field separately
@@ -505,9 +506,14 @@ export default function ServiceAgreementPage() {
 
       // Success - redirect back to client page
       router.push(`/dashboard/clients/${clientId}`)
-    } catch (error) {
-      console.error("Error saving service agreement:", error)
-      alert(`Failed to save service agreement: ${error.message}`)
+    } catch (error: unknown) {
+      if (error instanceof Error) {
+        console.error("Error saving service agreement:", error)
+        alert(`Failed to save service agreement: ${error.message}`)
+      } else {
+        console.error("Unknown error saving service agreement:", error)
+        alert("Failed to save service agreement: Unknown error")
+      }
     } finally {
       setSaving(false)
     }
@@ -634,9 +640,9 @@ export default function ServiceAgreementPage() {
 
                         {agreement.allocation_type && (
                           <div className="flex items-center justify-between text-sm mb-3">
-                            <span className="text-gray-600">Allocation Type:</span>
+                            <span className="text-gray-600">Funds Structure:</span>
                             <Badge variant="outline" className="text-xs">
-                              {agreement.allocation_type === "sum_of_buckets" ? "Sum of Buckets" : "Fixed Allocation"}
+                              {agreement.allocation_type === "sum_of_buckets" ? "Sum of Buckets" : "Upfront Allocation"}
                             </Badge>
                           </div>
                         )}
@@ -699,10 +705,8 @@ export default function ServiceAgreementPage() {
                           agreement_number: `SA-${Date.now()}`,
                           start_date: "",
                           end_date: "",
-                          funding_model: "single_bucket",
-                          allocation_type: "sum_of_buckets",
+                          funds_structure: "sum_of_buckets",
                           allocated_amount: undefined,
-                          primary_contact: "",
                           notes: "",
                           funding_buckets: [],
                           status: "draft",
@@ -808,57 +812,13 @@ export default function ServiceAgreementPage() {
                 </div>
 
                 <div>
-                  <Label htmlFor="primary_contact">Primary Contact</Label>
-                  <Input
-                    id="primary_contact"
-                    value={serviceAgreement.primary_contact}
-                    onChange={(e) =>
-                      setServiceAgreement((prev) => ({
-                        ...prev,
-                        primary_contact: e.target.value,
-                      }))
-                    }
-                    placeholder="Contact person for this agreement"
-                  />
-                </div>
-
-                {/* Funding Model */}
-                <div>
-                  <Label>Funding Model</Label>
+                  <Label>Funds Structure</Label>
                   <RadioGroup
-                    value={serviceAgreement.funding_model}
-                    onValueChange={(value: "single_bucket" | "multi_bucket") =>
-                      setServiceAgreement((prev) => ({
-                        ...prev,
-                        funding_model: value,
-                      }))
-                    }
-                    className="mt-2"
-                  >
-                    <div className="flex items-center space-x-2">
-                      <RadioGroupItem value="single_bucket" id="single_bucket" />
-                      <Label htmlFor="single_bucket" className="text-sm">
-                        Single Funding Bucket
-                      </Label>
-                    </div>
-                    <div className="flex items-center space-x-2">
-                      <RadioGroupItem value="multi_bucket" id="multi_bucket" />
-                      <Label htmlFor="multi_bucket" className="text-sm">
-                        Multiple Funding Buckets
-                      </Label>
-                    </div>
-                  </RadioGroup>
-                </div>
-
-                {/* Allocation Type */}
-                <div>
-                  <Label>Allocation Type</Label>
-                  <RadioGroup
-                    value={serviceAgreement.allocation_type}
+                    value={serviceAgreement.funds_structure}
                     onValueChange={(value: "sum_of_buckets" | "fixed_allocation") =>
                       setServiceAgreement((prev) => ({
                         ...prev,
-                        allocation_type: value,
+                        funds_structure: value,
                       }))
                     }
                     className="mt-2"
@@ -868,7 +828,9 @@ export default function ServiceAgreementPage() {
                       <Label htmlFor="sum_of_buckets" className="text-sm">
                         <div>
                           <div className="font-medium">Sum of Buckets</div>
-                          <div className="text-xs text-gray-500">Total value calculated from bucket amounts</div>
+                          <div className="text-xs text-gray-500">
+                            Total value calculated from draw down bucket amounts
+                          </div>
                         </div>
                       </Label>
                     </div>
@@ -876,8 +838,10 @@ export default function ServiceAgreementPage() {
                       <RadioGroupItem value="fixed_allocation" id="fixed_allocation" />
                       <Label htmlFor="fixed_allocation" className="text-sm">
                         <div>
-                          <div className="font-medium">Fixed Allocation</div>
-                          <div className="text-xs text-gray-500">Set a fixed total amount regardless of buckets</div>
+                          <div className="font-medium">Upfront Allocation</div>
+                          <div className="text-xs text-gray-500">
+                            Total value is set up front and buckets are created within that limit
+                          </div>
                         </div>
                       </Label>
                     </div>
@@ -885,7 +849,7 @@ export default function ServiceAgreementPage() {
                 </div>
 
                 {/* Fixed Allocation Amount */}
-                {serviceAgreement.allocation_type === "fixed_allocation" && (
+                {serviceAgreement.funds_structure === "fixed_allocation" && (
                   <div>
                     <Label htmlFor="allocated_amount">Allocated Amount (AUD)</Label>
                     <Input
@@ -915,7 +879,7 @@ export default function ServiceAgreementPage() {
                     <div className="text-xl font-bold text-blue-900">{formatCurrency(calculateTotalValue())}</div>
                   </div>
                   <div className="text-sm text-blue-700 mt-1">
-                    {serviceAgreement.allocation_type === "fixed_allocation"
+                    {serviceAgreement.funds_structure === "fixed_allocation"
                       ? "Fixed allocation amount"
                       : `Calculated from ${serviceAgreement.funding_buckets.length} bucket(s)`}
                   </div>

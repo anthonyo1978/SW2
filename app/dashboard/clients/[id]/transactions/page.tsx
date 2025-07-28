@@ -42,6 +42,7 @@ import {
   ArrowLeft,
 } from "lucide-react"
 import { supabase } from "@/lib/supabase"
+import { TransactionCreateDialog } from "@/components/dashboard/transaction-create-dialog"
 
 interface Client {
   id: string
@@ -108,18 +109,6 @@ export default function ClientTransactionsPage() {
   const [transactions, setTransactions] = useState<Transaction[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState("")
-  const [showCreateDialog, setShowCreateDialog] = useState(false)
-  const [creating, setCreating] = useState(false)
-  const [formData, setFormData] = useState<TransactionForm>({
-    service_agreement_id: "",
-    bucket_id: "",
-    transaction_type: "service_delivery",
-    service_id: "",
-    service_description: "",
-    unit_cost: "",
-    quantity: "1",
-    notes: "",
-  })
 
   useEffect(() => {
     if (params.id) {
@@ -180,87 +169,6 @@ export default function ClientTransactionsPage() {
       setError(err.message)
     } finally {
       setLoading(false)
-    }
-  }
-
-  const handleInputChange = (field: keyof TransactionForm, value: string) => {
-    setFormData((prev) => ({ ...prev, [field]: value }))
-  }
-
-  const calculateAmount = () => {
-    const unitCost = Number.parseFloat(formData.unit_cost) || 0
-    const quantity = Number.parseFloat(formData.quantity) || 1
-    return unitCost * quantity
-  }
-
-  const getSelectedBucket = () => {
-    if (!formData.service_agreement_id || !formData.bucket_id) return null
-    const agreement = serviceAgreements.find((a) => a.id === formData.service_agreement_id)
-    return agreement?.agreement_buckets.find((b) => b.id === formData.bucket_id) || null
-  }
-
-  const canCreateTransaction = () => {
-    const bucket = getSelectedBucket()
-    if (!bucket) return false
-
-    const amount = calculateAmount()
-    if (amount <= 0) return false
-
-    // For draw-down buckets, check if there's sufficient balance
-    if (formData.transaction_type === "service_delivery" && bucket.template_category === "draw_down") {
-      return bucket.current_balance >= amount
-    }
-
-    return true
-  }
-
-  const createTransaction = async () => {
-    if (!client || !canCreateTransaction()) return
-
-    setCreating(true)
-    try {
-      const amount = calculateAmount()
-
-      const { error } = await supabase.from("transactions").insert({
-        client_id: client.id,
-        service_agreement_id: formData.service_agreement_id,
-        bucket_id: formData.bucket_id,
-        transaction_type: formData.transaction_type,
-        service_id: formData.service_id || null,
-        service_description: formData.service_description,
-        unit_cost: Number.parseFloat(formData.unit_cost) || null,
-        quantity: Number.parseFloat(formData.quantity) || 1,
-        amount: amount,
-        transaction_date: new Date().toISOString().split("T")[0],
-        description: `${formData.service_description} (${formData.quantity} × ${formatCurrency(
-          Number.parseFloat(formData.unit_cost) || 0,
-        )})`,
-        status: "completed",
-        notes: formData.notes || null,
-      })
-
-      if (error) throw error
-
-      // Reset form and close dialog
-      setFormData({
-        service_agreement_id: "",
-        bucket_id: "",
-        transaction_type: "service_delivery",
-        service_id: "",
-        service_description: "",
-        unit_cost: "",
-        quantity: "1",
-        notes: "",
-      })
-      setShowCreateDialog(false)
-
-      // Refresh data
-      await fetchData(client.id)
-    } catch (error: any) {
-      console.error("Error creating transaction:", error)
-      alert(`Failed to create transaction: ${error.message}`)
-    } finally {
-      setCreating(false)
     }
   }
 
@@ -378,230 +286,17 @@ export default function ClientTransactionsPage() {
               </p>
             </div>
           </div>
-          <Dialog open={showCreateDialog} onOpenChange={setShowCreateDialog}>
-            <DialogTrigger asChild>
+          <TransactionCreateDialog
+            client={client}
+            serviceAgreements={serviceAgreements}
+            onCreated={() => fetchData(client.id)}
+            trigger={
               <Button disabled={serviceAgreements.length === 0}>
                 <Plus className="w-4 h-4 mr-2" />
                 Create Transaction
               </Button>
-            </DialogTrigger>
-            <DialogContent className="max-w-2xl">
-              <DialogHeader>
-                <DialogTitle>Create New Transaction</DialogTitle>
-                <DialogDescription>
-                  Create a new transaction to track service delivery or invoice items.
-                </DialogDescription>
-              </DialogHeader>
-
-              <div className="space-y-6">
-                {/* Service Agreement Selection */}
-                <div className="space-y-2">
-                  <Label htmlFor="service_agreement">Service Agreement *</Label>
-                  <Select
-                    value={formData.service_agreement_id}
-                    onValueChange={(value) => {
-                      handleInputChange("service_agreement_id", value)
-                      handleInputChange("bucket_id", "") // Reset bucket selection
-                    }}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select service agreement" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {serviceAgreements.map((agreement) => (
-                        <SelectItem key={agreement.id} value={agreement.id}>
-                          <div className="flex items-center justify-between w-full">
-                            <span>{agreement.name}</span>
-                            <span className="text-sm text-gray-500 ml-2">
-                              {formatCurrency(agreement.remaining_balance || 0)} remaining
-                            </span>
-                          </div>
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                {/* Funding Bucket Selection */}
-                {formData.service_agreement_id && (
-                  <div className="space-y-2">
-                    <Label htmlFor="bucket">Funding Bucket *</Label>
-                    <Select value={formData.bucket_id} onValueChange={(value) => handleInputChange("bucket_id", value)}>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select funding bucket" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {serviceAgreements
-                          .find((a) => a.id === formData.service_agreement_id)
-                          ?.agreement_buckets.map((bucket) => (
-                            <SelectItem key={bucket.id} value={bucket.id}>
-                              <div className="flex items-center justify-between w-full">
-                                <span>{bucket.template_name}</span>
-                                <span className="text-sm text-gray-500 ml-2">
-                                  {formatCurrency(bucket.current_balance)} available
-                                </span>
-                              </div>
-                            </SelectItem>
-                          ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                )}
-
-                {/* Transaction Type */}
-                <div className="space-y-2">
-                  <Label htmlFor="transaction_type">Transaction Type *</Label>
-                  <Select
-                    value={formData.transaction_type}
-                    onValueChange={(value: "service_delivery" | "invoice_item") =>
-                      handleInputChange("transaction_type", value)
-                    }
-                  >
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="service_delivery">
-                        <div className="flex items-center gap-2">
-                          <TrendingDown className="w-4 h-4 text-red-600" />
-                          Service Delivery (Draw Down)
-                        </div>
-                      </SelectItem>
-                      <SelectItem value="invoice_item">
-                        <div className="flex items-center gap-2">
-                          <TrendingUp className="w-4 h-4 text-green-600" />
-                          Invoice Item (Fill Up)
-                        </div>
-                      </SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                {/* Service Details */}
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="service_id">Service ID</Label>
-                    <Input
-                      id="service_id"
-                      value={formData.service_id}
-                      onChange={(e) => handleInputChange("service_id", e.target.value)}
-                      placeholder="Optional service ID"
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="quantity">Quantity *</Label>
-                    <Input
-                      id="quantity"
-                      type="number"
-                      step="0.01"
-                      min="0.01"
-                      value={formData.quantity}
-                      onChange={(e) => handleInputChange("quantity", e.target.value)}
-                      placeholder="1"
-                    />
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="service_description">Service Description *</Label>
-                  <Input
-                    id="service_description"
-                    value={formData.service_description}
-                    onChange={(e) => handleInputChange("service_description", e.target.value)}
-                    placeholder="Describe the service provided"
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="unit_cost">Unit Cost (AUD) *</Label>
-                  <Input
-                    id="unit_cost"
-                    type="number"
-                    step="0.01"
-                    min="0"
-                    value={formData.unit_cost}
-                    onChange={(e) => handleInputChange("unit_cost", e.target.value)}
-                    placeholder="0.00"
-                  />
-                </div>
-
-                {/* Amount Calculation */}
-                {formData.unit_cost && formData.quantity && (
-                  <div className="p-4 bg-blue-50 rounded-lg">
-                    <div className="flex items-center justify-between">
-                      <span className="font-medium text-blue-900">Total Amount:</span>
-                      <span className="text-xl font-bold text-blue-900">{formatCurrency(calculateAmount())}</span>
-                    </div>
-                  </div>
-                )}
-
-                {/* Balance Warning */}
-                {formData.transaction_type === "service_delivery" && getSelectedBucket() && (
-                  <div
-                    className={`p-4 rounded-lg ${
-                      canCreateTransaction() ? "bg-green-50 border-green-200" : "bg-red-50 border-red-200"
-                    } border`}
-                  >
-                    <div className="flex items-center gap-2">
-                      {canCreateTransaction() ? (
-                        <CheckCircle className="w-5 h-5 text-green-600" />
-                      ) : (
-                        <AlertTriangle className="w-5 h-5 text-red-600" />
-                      )}
-                      <div>
-                        <div className="font-medium">
-                          Available Balance: {formatCurrency(getSelectedBucket()?.current_balance || 0)}
-                        </div>
-                        {!canCreateTransaction() && (
-                          <div className="text-sm text-red-600">Insufficient funds for this transaction</div>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                <div className="space-y-2">
-                  <Label htmlFor="notes">Notes</Label>
-                  <Textarea
-                    id="notes"
-                    value={formData.notes}
-                    onChange={(e) => handleInputChange("notes", e.target.value)}
-                    placeholder="Optional notes about this transaction"
-                    rows={3}
-                  />
-                </div>
-              </div>
-
-              <DialogFooter>
-                <Button variant="outline" onClick={() => setShowCreateDialog(false)}>
-                  Cancel
-                </Button>
-                <Button
-                  onClick={createTransaction}
-                  disabled={
-                    creating ||
-                    !formData.service_agreement_id ||
-                    !formData.bucket_id ||
-                    !formData.service_description ||
-                    !formData.unit_cost ||
-                    !canCreateTransaction()
-                  }
-                >
-                  {creating ? (
-                    <>
-                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                      Creating...
-                    </>
-                  ) : (
-                    <>
-                      <Receipt className="w-4 h-4 mr-2" />
-                      Create Transaction
-                    </>
-                  )}
-                </Button>
-              </DialogFooter>
-            </DialogContent>
-          </Dialog>
+            }
+          />
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-4 gap-8">
@@ -659,7 +354,7 @@ export default function ClientTransactionsPage() {
                     <Receipt className="w-12 h-12 text-gray-300 mx-auto mb-4" />
                     <h3 className="text-lg font-medium text-gray-900 mb-2">No Transactions Yet</h3>
                     <p className="text-gray-500 mb-4">Create your first transaction to start tracking services.</p>
-                    <Button onClick={() => setShowCreateDialog(true)} disabled={serviceAgreements.length === 0}>
+                    <Button onClick={() => {}} disabled={serviceAgreements.length === 0}>
                       <Plus className="w-4 h-4 mr-2" />
                       Create First Transaction
                     </Button>
