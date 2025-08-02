@@ -27,7 +27,6 @@ import {
   Loader2,
   Home,
   Filter,
-  DollarSign,
 } from "lucide-react"
 import { supabase } from "@/lib/supabase"
 import {
@@ -72,6 +71,7 @@ export default function ServicesPage() {
   const [statusFilter, setStatusFilter] = useState("all")
   const [organizationId, setOrganizationId] = useState<string | null>(null)
   const [activating, setActivating] = useState<string | null>(null)
+  const [categories, setCategories] = useState<any[]>([])
 
   useEffect(() => {
     initializeAndFetchServices()
@@ -98,7 +98,10 @@ export default function ServicesPage() {
       }
 
       setOrganizationId(profile.organization_id)
-      await fetchServices(profile.organization_id)
+      await Promise.all([
+        fetchServices(profile.organization_id),
+        fetchCategories(profile.organization_id)
+      ])
     } catch (error) {
       console.error("Error initializing:", error)
     }
@@ -128,6 +131,27 @@ export default function ServicesPage() {
       console.error("Error fetching services:", error)
     } finally {
       setLoading(false)
+    }
+  }
+
+  const fetchCategories = async (orgId: string) => {
+    try {
+      const { data, error } = await supabase
+        .from("service_categories")
+        .select("*")
+        .eq("organization_id", orgId)
+        .eq("is_active", true)
+        .order("sort_order")
+        .order("name")
+
+      if (error) {
+        console.error("Error fetching categories:", error)
+        return
+      }
+
+      setCategories(data || [])
+    } catch (error) {
+      console.error("Error fetching categories:", error)
     }
   }
 
@@ -231,7 +255,7 @@ export default function ServicesPage() {
     return matchesSearch && matchesCategory && matchesStatus
   })
 
-  const uniqueCategories = Array.from(new Set(services.map(s => s.category).filter(Boolean)))
+  const uniqueCategories = categories.map(c => c.name)
   const statusCounts = {
     all: services.length,
     draft: services.filter(s => s.status === 'draft').length,
@@ -297,7 +321,7 @@ export default function ServicesPage() {
         </div>
 
         {/* Stats Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium text-gray-600">Total Services</CardTitle>
@@ -332,22 +356,6 @@ export default function ServicesPage() {
               <div className="text-2xl font-bold">{uniqueCategories.length}</div>
             </CardContent>
           </Card>
-
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium text-gray-600">Avg. Price</CardTitle>
-              <DollarSign className="w-4 h-4 text-orange-500" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">
-                {formatCurrency(
-                  services.length > 0 
-                    ? services.reduce((sum, s) => sum + s.base_cost, 0) / services.length 
-                    : 0
-                )}
-              </div>
-            </CardContent>
-          </Card>
         </div>
 
         {/* Search and Filters */}
@@ -369,8 +377,10 @@ export default function ServicesPage() {
                 className="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
               >
                 <option value="all">All Categories</option>
-                {uniqueCategories.map((category) => (
-                  <option key={category} value={category}>{category}</option>
+                {categories.map((category) => (
+                  <option key={category.id} value={category.name}>
+                    {category.name}
+                  </option>
                 ))}
               </select>
               <select
@@ -447,7 +457,20 @@ export default function ServicesPage() {
                         
                         <TableCell>
                           {service.category && (
-                            <Badge variant="outline">{service.category}</Badge>
+                            <Badge 
+                              variant="outline" 
+                              className="flex items-center gap-1 w-fit"
+                              style={{ 
+                                borderColor: categories.find(c => c.name === service.category)?.color || '#6B7280',
+                                color: categories.find(c => c.name === service.category)?.color || '#6B7280'
+                              }}
+                            >
+                              <div 
+                                className="w-2 h-2 rounded-full" 
+                                style={{ backgroundColor: categories.find(c => c.name === service.category)?.color || '#6B7280' }}
+                              />
+                              {service.category}
+                            </Badge>
                           )}
                         </TableCell>
 

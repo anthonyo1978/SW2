@@ -32,6 +32,14 @@ interface BoxTemplate {
   box_type: 'fill_up' | 'draw_down' | 'hybrid'
   allocated_amount: number
   description: string
+  service_category_id?: string
+}
+
+interface ServiceCategory {
+  id: string
+  name: string
+  description?: string
+  color: string
 }
 
 export default function NewContractPage() {
@@ -39,6 +47,7 @@ export default function NewContractPage() {
   const searchParams = useSearchParams()
   const [loading, setLoading] = useState(false)
   const [clients, setClients] = useState<Client[]>([])
+  const [serviceCategories, setServiceCategories] = useState<ServiceCategory[]>([])
   const [organizationId, setOrganizationId] = useState<string | null>(null)
 
   // Form data
@@ -101,7 +110,10 @@ export default function NewContractPage() {
       }
 
       setOrganizationId(profile.organization_id)
-      await fetchClients(profile.organization_id)
+      await Promise.all([
+        fetchClients(profile.organization_id),
+        fetchServiceCategories(profile.organization_id)
+      ])
     } catch (error) {
       console.error("Error initializing:", error)
     }
@@ -159,6 +171,27 @@ export default function NewContractPage() {
       }
     } catch (error) {
       console.error("Error fetching clients:", error)
+    }
+  }
+
+  const fetchServiceCategories = async (orgId: string) => {
+    try {
+      const { data, error } = await supabase
+        .from("service_categories")
+        .select("id, name, description, color")
+        .eq("organization_id", orgId)
+        .eq("is_active", true)
+        .order("sort_order")
+        .order("name")
+
+      if (error) {
+        console.error("Error fetching service categories:", error)
+        return
+      }
+
+      setServiceCategories(data || [])
+    } catch (error) {
+      console.error("Error fetching service categories:", error)
     }
   }
 
@@ -341,6 +374,7 @@ export default function NewContractPage() {
           box_type: box.box_type,
           allocated_amount: box.allocated_amount || 0,
           current_balance: box.box_type === 'fill_up' ? (box.allocated_amount || 0) : 0,
+          service_category_id: box.service_category_id || null,
           status: 'active'
         }
       })
@@ -582,6 +616,38 @@ export default function NewContractPage() {
                     </div>
 
                     <div>
+                      <Label>Service Category</Label>
+                      <Select 
+                        value={box.service_category_id || "none"} 
+                        onValueChange={(value) => handleBoxChange(box.id, "service_category_id", value === "none" ? undefined : value)}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select category (optional)" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="none">No restriction (flexible box)</SelectItem>
+                          {serviceCategories.map((category) => (
+                            <SelectItem key={category.id} value={category.id}>
+                              <div className="flex items-center gap-2">
+                                <div 
+                                  className="w-3 h-3 rounded-full" 
+                                  style={{ backgroundColor: category.color }}
+                                />
+                                {category.name}
+                              </div>
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <p className="text-xs text-gray-500 mt-1">
+                        {box.service_category_id 
+                          ? "Only services from this category can be billed to this box"
+                          : "Any service can be billed to this box (flexible)"
+                        }
+                      </p>
+                    </div>
+
+                    <div>
                       <Label>Allocated Amount ($)</Label>
                       <Input
                         type="number"
@@ -596,7 +662,7 @@ export default function NewContractPage() {
                       />
                     </div>
 
-                    <div>
+                    <div className="md:col-span-2">
                       <Label>Description</Label>
                       <Input
                         value={box.description}

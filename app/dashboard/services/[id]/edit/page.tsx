@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { useRouter } from "next/navigation"
+import { useRouter, useParams } from "next/navigation"
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -23,11 +23,44 @@ import {
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb"
 
-export default function NewServicePage() {
+interface Service {
+  id: string
+  name: string
+  description?: string
+  service_code?: string
+  base_cost: number
+  cost_currency: string
+  unit: string
+  category?: string
+  subcategory?: string
+  status: 'draft' | 'active' | 'inactive' | 'archived'
+  is_active: boolean
+  allow_discount: boolean
+  can_be_cancelled: boolean
+  requires_approval: boolean
+  is_taxable: boolean
+  tax_rate: number
+  has_variable_pricing: boolean
+  min_cost?: number
+  max_cost?: number
+  effective_from?: string
+  effective_to?: string
+  notes?: string
+  tags?: string[]
+  created_at: string
+  updated_at: string
+}
+
+export default function EditServicePage() {
   const router = useRouter()
+  const params = useParams()
+  const serviceId = params.id as string
+
   const [loading, setLoading] = useState(false)
+  const [fetchingService, setFetchingService] = useState(true)
   const [error, setError] = useState("")
   const [organizationId, setOrganizationId] = useState<string | null>(null)
+  const [service, setService] = useState<Service | null>(null)
   const [tags, setTags] = useState<string[]>([])
   const [currentTag, setCurrentTag] = useState("")
 
@@ -51,12 +84,11 @@ export default function NewServicePage() {
     effective_from: "",
     effective_to: "",
     notes: "",
-    status: "draft",
   })
 
   useEffect(() => {
     initializeData()
-  }, [])
+  }, [serviceId])
 
   const initializeData = async () => {
     try {
@@ -64,7 +96,7 @@ export default function NewServicePage() {
       const { data: { user }, error: userError } = await supabase.auth.getUser()
       if (userError || !user) {
         console.error("User not authenticated:", userError)
-        setError("You must be logged in to create services. Please sign in and try again.")
+        setError("You must be logged in to edit services. Please sign in and try again.")
         return
       }
 
@@ -81,10 +113,60 @@ export default function NewServicePage() {
       }
 
       setOrganizationId(profile.organization_id)
-      console.log("✅ Initialized with organization:", profile.organization_id)
+      await fetchService(profile.organization_id)
     } catch (error) {
       console.error("Error initializing:", error)
       setError("Failed to initialize the form. Please refresh the page and try again.")
+    }
+  }
+
+  const fetchService = async (orgId: string) => {
+    try {
+      const { data, error } = await supabase
+        .from("services")
+        .select("*")
+        .eq("id", serviceId)
+        .eq("organization_id", orgId)
+        .single()
+
+      if (error) {
+        console.error("Error fetching service:", error)
+        setError("Service not found or you don't have permission to edit it.")
+        return
+      }
+
+      setService(data)
+      
+      // Populate form with existing data
+      setFormData({
+        name: data.name || "",
+        description: data.description || "",
+        service_code: data.service_code || "",
+        base_cost: data.base_cost?.toString() || "",
+        cost_currency: data.cost_currency || "AUD",
+        unit: data.unit || "hour",
+        category: data.category || "",
+        subcategory: data.subcategory || "",
+        allow_discount: data.allow_discount ?? true,
+        can_be_cancelled: data.can_be_cancelled ?? true,
+        requires_approval: data.requires_approval ?? false,
+        is_taxable: data.is_taxable ?? true,
+        tax_rate: data.tax_rate?.toString() || "10.00",
+        has_variable_pricing: data.has_variable_pricing ?? false,
+        min_cost: data.min_cost?.toString() || "",
+        max_cost: data.max_cost?.toString() || "",
+        effective_from: data.effective_from || "",
+        effective_to: data.effective_to || "",
+        notes: data.notes || "",
+      })
+      
+      setTags(data.tags || [])
+
+    } catch (error) {
+      console.error("Error fetching service:", error)
+      setError("Failed to load service data.")
+    } finally {
+      setFetchingService(false)
     }
   }
 
@@ -135,41 +217,23 @@ export default function NewServicePage() {
     return null
   }
 
-  const createService = async () => {
+  const updateService = async () => {
     const validationError = validateForm()
     if (validationError) {
       setError(validationError)
       return
     }
 
-    if (!organizationId) {
-      setError("Organization not found. Please ensure you are logged in with a proper organization account.")
+    if (!organizationId || !service) {
+      setError("Missing required data")
       return
     }
 
     setLoading(true)
     try {
-      // Get current user for audit fields
-      const { data: { user }, error: userError } = await supabase.auth.getUser()
+      const { data: { user } } = await supabase.auth.getUser()
       
-      if (userError || !user) {
-        throw new Error(`Authentication error: ${userError?.message || 'User not authenticated'}. Please log in and try again.`)
-      }
-      
-      console.log("✅ User authenticated:", user.id)
-      
-      // First, let's check if the services table exists by trying a simple query
-      const { error: tableCheckError } = await supabase
-        .from("services")
-        .select("id")
-        .limit(1)
-
-      if (tableCheckError) {
-        throw new Error(`Services table not found or not accessible: ${tableCheckError.message}. Please run the database migration scripts first.`)
-      }
-
       const serviceData = {
-        organization_id: organizationId,
         name: formData.name.trim(),
         description: formData.description.trim() || null,
         service_code: formData.service_code.trim() || null,
@@ -190,53 +254,47 @@ export default function NewServicePage() {
         effective_to: formData.effective_to || null,
         notes: formData.notes.trim() || null,
         tags: tags.length > 0 ? tags : null,
-        status: "draft", // Hardcode to draft for now
-        is_active: false, // Always false for new services (they start as draft)
-        created_by: user?.id || null,
         updated_by: user?.id || null,
       }
 
-      console.log("Attempting to create service with data:", serviceData)
+      console.log("Updating service with data:", serviceData)
 
       const { data, error } = await supabase
         .from("services")
-        .insert(serviceData)
+        .update(serviceData)
+        .eq("id", serviceId)
+        .eq("organization_id", organizationId)
         .select()
         .single()
 
-      console.log("Supabase response - data:", data)
-      console.log("Supabase response - error:", error)
-      console.log("Error type:", typeof error)
-      console.log("Error keys:", error ? Object.keys(error) : 'null')
-      console.log("Error stringified:", JSON.stringify(error, null, 2))
-
       if (error) {
-        // Try to extract any useful information from the error
-        const errorMessage = error.message || error.msg || error.detail || error.hint || 'Unknown database error'
-        const errorCode = error.code || 'Unknown'
-        const errorDetails = error.details || 'No details available'
-        
-        console.error("🔍 DETAILED ERROR ANALYSIS:")
-        console.error("  - Message:", errorMessage)
-        console.error("  - Code:", errorCode) 
-        console.error("  - Details:", errorDetails)
-        console.error("  - Full error object:", error)
-        
-        throw new Error(`Database error (${errorCode}): ${errorMessage}. Details: ${errorDetails}`)
+        console.error("Update error:", error)
+        throw new Error(`Failed to update service: ${error.message}`)
       }
 
-      console.log("Service created successfully:", data)
+      console.log("Service updated successfully:", data)
       
-      // Show success message and redirect
-      alert(`✅ Service "${formData.name}" created successfully!`)
+      alert(`✅ Service "${formData.name}" updated successfully!`)
       router.push("/dashboard/services")
       
     } catch (error: any) {
-      console.error("Error creating service:", error)
-      setError(`Failed to create service: ${error.message}`)
+      console.error("Error updating service:", error)
+      setError(error.message)
     } finally {
       setLoading(false)
     }
+  }
+
+  const getStatusBadge = (status: string) => {
+    const statusVariants = {
+      draft: { class: "bg-gray-100 text-gray-800", label: "Draft" },
+      active: { class: "bg-green-100 text-green-800", label: "Active" },
+      inactive: { class: "bg-red-100 text-red-800", label: "Inactive" },
+      archived: { class: "bg-gray-100 text-gray-600", label: "Archived" }
+    }
+    
+    const variant = statusVariants[status as keyof typeof statusVariants] || statusVariants.draft
+    return <Badge className={variant.class}>{variant.label}</Badge>
   }
 
 
@@ -249,6 +307,34 @@ export default function NewServicePage() {
     { value: "month", label: "Per Month" },
     { value: "year", label: "Per Year" },
   ]
+
+  if (fetchingService) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="text-center">
+          <Loader2 className="w-8 h-8 animate-spin mx-auto mb-4 text-blue-600" />
+          <p className="text-gray-600">Loading service...</p>
+        </div>
+      </div>
+    )
+  }
+
+  if (!service) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="text-center">
+          <h2 className="text-2xl font-bold text-gray-900 mb-4">Service Not Found</h2>
+          <p className="text-gray-600 mb-4">The service you're looking for doesn't exist or you don't have permission to edit it.</p>
+          <Button asChild>
+            <Link href="/dashboard/services">
+              <ArrowLeft className="w-4 h-4 mr-2" />
+              Back to Services
+            </Link>
+          </Button>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -272,7 +358,7 @@ export default function NewServicePage() {
             </BreadcrumbItem>
             <BreadcrumbSeparator />
             <BreadcrumbItem>
-              <BreadcrumbPage>New Service</BreadcrumbPage>
+              <BreadcrumbPage>Edit Service</BreadcrumbPage>
             </BreadcrumbItem>
           </BreadcrumbList>
         </Breadcrumb>
@@ -286,9 +372,12 @@ export default function NewServicePage() {
 
           <div className="flex justify-between items-start">
             <div>
-              <h1 className="text-3xl font-bold text-gray-900">Create New Service</h1>
-              <p className="text-gray-600 mt-1">
-                Add a new service to your catalog
+              <div className="flex items-center gap-3 mb-2">
+                <h1 className="text-3xl font-bold text-gray-900">Edit Service</h1>
+                {getStatusBadge(service.status)}
+              </div>
+              <p className="text-gray-600">
+                Modify the details of "{service.name}"
               </p>
             </div>
           </div>
@@ -526,11 +615,11 @@ export default function NewServicePage() {
 
                 <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
                   <div className="flex items-center gap-2 text-blue-800">
-                    <Badge className="bg-gray-100 text-gray-800">Draft</Badge>
-                    <span className="text-sm">New services are created in Draft status</span>
+                    {getStatusBadge(service.status)}
+                    <span className="text-sm">Current status</span>
                   </div>
                   <p className="text-xs text-blue-600 mt-1">
-                    You can activate the service after creation to make it available for service agreements.
+                    Use the actions menu in the services list to change status.
                   </p>
                 </div>
               </div>
@@ -611,9 +700,9 @@ export default function NewServicePage() {
 
           {/* Actions */}
           <div className="flex gap-4">
-            <Button onClick={createService} disabled={loading} className="flex-1">
+            <Button onClick={updateService} disabled={loading} className="flex-1">
               {loading ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Save className="w-4 h-4 mr-2" />}
-              Create Service
+              Update Service
             </Button>
             
             <Button variant="outline" onClick={() => router.push("/dashboard/services")}>
