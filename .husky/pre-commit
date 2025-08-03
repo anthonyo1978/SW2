@@ -1,0 +1,8 @@
+echo "🔍 Running pre-commit checks..."
+
+# Run tests to ensure nothing is broken
+echo "🧪 Running tests..."
+npm run test:run
+
+# If we get here, all checks passed
+echo "✅ All pre-commit checks passed!"
