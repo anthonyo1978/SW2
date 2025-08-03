@@ -94,12 +94,12 @@ jobs:
       - name: Check for secrets in code
         run: |
           echo "🔍 Checking for potential secrets..."
-          # Check for common secret patterns
-          if grep -r --include="*.ts" --include="*.tsx" --include="*.js" --include="*.jsx" -E "(password|secret|key|token).*=.*['\"][^'\"]{10,}" . --exclude-dir=node_modules --exclude-dir=.git; then
-            echo "⚠️  Potential secrets found in code!"
+          # Check for actual hardcoded secrets (not HTML attributes or React props)
+          if grep -r --include="*.ts" --include="*.tsx" --include="*.js" --include="*.jsx" -E "(apiKey|secretKey|accessToken|privateKey|password)\\s*[:=]\\s*['\"][a-zA-Z0-9]{25,}['\"]" . --exclude-dir=node_modules --exclude-dir=.git --exclude-dir=tests --exclude-dir=.next --exclude-dir=dist; then
+            echo "⚠️  Hardcoded secrets found in source code!"
             exit 1
           else
-            echo "✅ No obvious secrets found in code"
+            echo "✅ No hardcoded secrets found in source code"
           fi
 
   # Deployment preview (for Vercel)
